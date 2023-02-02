@@ -61,9 +61,9 @@ class CLSDataFrame:
         print("Scans                 : ",self.Scans)
         
 
-    def computeWL(self,Mass,ref):
+    def computeWL(self,Mass,ref,harmonic = 2):
         self.Mass = Mass
         self.Laser_ref = ref
-        self.Sorted["WN"] = self.dopplershift(2*self.Laser_set,self.Sorted["V"],self.Mass)
+        self.Sorted["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Sorted["V"],self.Mass)
         self.Sorted["F"]  = (self.WN_to_f*self.Sorted["WN"]-ref)/1.0e6
         # 2*self.Laser_set*

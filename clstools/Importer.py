@@ -35,9 +35,9 @@ class Importer:
         df = pd.read_csv(self.calib_filename, skiprows = 2, names=["Set","Read"],skip_blank_lines = True)
 
         self.data.Step_Size = abs(df.at[1, 'Set']-df.at[0, 'Set'])
-        
-        df["Read"] = df["Read"]*self.VAccDiv
 
+        df["Read"] = df["Read"]*self.VAccDiv
+        
         result = stats.linregress(df["Set"],df["Read"])
         
         # coeffs = np.polyfit(df['Set'], df['Read'], 2)
@@ -82,6 +82,7 @@ class Importer:
 
             tmp["TS"].append(self.data.Run["TS"][i])
             tmp["V"].append(self.data.Run["Vrfq"][i]*self.VCoolDiv - self.data.Run["DV_cal"][i])
+            # tmp["V"].append(self.data.Run["Vrfq"][i]*self.VCoolDiv - self.data.Cal[self.data.Run["DV"][i]])
             tmp["Vrfq"].append(self.data.Run["Vrfq"][i]*self.VCoolDiv)
             tmp["DV"].append(self.data.Run["DV"][i])
             tmp["TOF"].append(self.data.Run["TOF"][i])
