@@ -8,32 +8,35 @@ def main():
 
     data = cls.CLSDataFrame()
     start = time.time()
-    cls.Importer("/data/CLS/Data",4098,data,blocksize=10e6)
+    cls.Importer("/data/CLS/Data",3783,data,blocksize=10e6)
     # data.info()
     data.Compute_Voltages()
-    data.Compute_WL(56,0)
+
+    c = 299792458 #m/s
+    Elow=0
+    Eup = 34612.820
+    WN_to_f = 1e2*c 
+
+    Frequency = (Eup-Elow)*WN_to_f
+    data.Compute_WL(238,Frequency)
+    print(data.Sorted)
+    x,y = data.Compute_Bins(TOF_gate=[100,130] ,V_gate=None)
 
     data.info()
     print('total = ', time.time()-start)
+    
+    # print(data.Sorted)
+    # print(data.Run)
     #  # data.sorted host the calibrated data with frequency info
     # df = data.Sorted[(data.Sorted['TOF']>48) & (data.Sorted['TOF']<58 )]  
 
     # bins = round(abs(df["V"].max()-df["V"].min()))
     # count, bin = np.histogram(data.Sorted['V'].tolist(), bins = bins)
 
-    # # plt.figure()
-    # # sett = []
-    # # read = []
-    # # for key in data.Cal:
-    # #     sett.append(key)
-    # #     read.append(data.Cal[key])
-    # # # plt.plot(sett,read,'yo')
-    # # # plt.plot([-1400,1780],[-1400,1780],'r--')
-
+    plt.figure()
     
-    # plt.figure()
-    # plt.plot(bin[:-1],count)
-    # plt.show()
+    plt.plot(x,y)
+    plt.show()
 
 if __name__ == '__main__':
     main()

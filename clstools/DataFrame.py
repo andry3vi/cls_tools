@@ -50,6 +50,7 @@ class CLSDataFrame:
         self.LoadingTime = 0
         self.ComputationVTime = 0
         self.ComputationWLTime = 0
+        self.ComputationBinTime = 0
     
     def info(self):
 
@@ -75,6 +76,7 @@ class CLSDataFrame:
         print("     Loading time                [s] -> ",self.LoadingTime)
         print("     Voltage Computation time    [s] -> ",self.ComputationVTime)
         print("     Wavelenght Computation time [s] -> ",self.ComputationWLTime)
+        print("     Bin Computation time        [s] -> ",self.ComputationBinTime)
         print("----------------------------------------------------")
         print("\n")
 
@@ -109,3 +111,21 @@ class CLSDataFrame:
         self.Sorted = self.Run.compute()
         self.Size_sorted = len(self.Sorted)
         self.ComputationWLTime = time.time()-start
+
+    def Compute_Bins(self,TOF_gate = None, V_gate = None):
+        start = time.time()
+        self.Run["counts"] = 1
+        tmp = self.Run
+        if TOF_gate != None:
+            tmp = tmp[tmp.TOF<max(TOF_gate)][tmp.TOF>min(TOF_gate)]
+
+        if V_gate != None:  
+            
+            tmp = tmp[tmp.DV<max(V_gate)][tmp.DV>min(V_gate)]
+
+        tmp = tmp[["F","counts"]].groupby('F').sum()
+        tmp = tmp.compute()
+
+        self.ComputationBinTime = time.time()-start
+
+        return tmp.index.to_list(), tmp.values.tolist()
