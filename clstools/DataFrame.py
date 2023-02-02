@@ -1,5 +1,8 @@
+import dask.dataframe as dd
+import pandas as pd
 import numpy as np
 from numpy import sqrt
+import time
 
 class CLSDataFrame:
 
@@ -24,15 +27,15 @@ class CLSDataFrame:
         """Voltage in volts, mass in amu, works for frequency or wavenumber"""
         return frequency * self.dopplerfactor(voltage, mass, collinear, rest_to_lab)
     
-    def __init__(self):
+    def __init__(self,VAccDiv = 1000,VCoolDiv = 10000 ):
+        self.VCoolDiv = VCoolDiv
+        self.VAccDiv = VAccDiv
         self.Vcool_init = None
         self.Laser_set = None
         self.Laser_ref = None
         self.Step_Size = None
-        self.Cal_m = None
-        self.Cal_q = None
-        self.Cal_m_stderr = None
-        self.Cal_q_stderr = None
+        self.Cal = []
+        self.Cal_err = []
         self.Run = None
         self.Size = None
         self.Sorted = None
@@ -41,29 +44,68 @@ class CLSDataFrame:
         self.Min = None
         self.Bin = None
         self.DAQTime = None
-        self.Set_V = None
         self.Step_Size = None
         self.Scans = None
+        self.Cal_order = None
+        self.LoadingTime = 0
+        self.ComputationVTime = 0
+        self.ComputationWLTime = 0
     
     def info(self):
-        print("Initial Cooler Voltage: ",self.Vcool_init)
-        print("Laser Setpoint        : ",self.Laser_set)
-        print("Voltage Step Size     : ",self.Step_Size)
-        print("Entries               : ",self.Size)
-        print("Reduced Entries       : ",self.Size_sorted)
-        print("Calibration Slope     : ",self.Cal_m," +- ",self.Cal_m_stderr)
-        print("Calibration Intercept : ",self.Cal_q," +- ",self.Cal_q_stderr)
-        print("DAQ Time              : ",self.DAQTime)        
-        print("Bins                  : ",self.Bin)
-        print("Min                   : ",self.Min)
-        print("Max                   : ",self.Max)
-        print("Step Size             : ",self.Step_Size)
-        print("Scans                 : ",self.Scans)
-        
 
-    def computeWL(self,Mass,ref,harmonic = 2):
+        print("\n")
+        print("----------------------Settings----------------------")
+        print("     Cooler voltage monitor scaling -> ",self.VCoolDiv)
+        print("     LCR voltage monitor scaling    -> ",self.VAccDiv)
+        print("------------------Calibration file------------------")
+        print("     Initial Cooler Voltage    -> ",self.Vcool_init*self.VCoolDiv)
+        print("     Laser Setpoint            -> ",self.Laser_set)
+        print("     Calibration [p0 p1 p2 ...] -> ", [self.VAccDiv*i for i in self.Cal])
+        print("     Calibration [e0 e1 e2 ...] -> ", [self.VAccDiv*i for i in self.Cal_err])
+        print("     Voltage Step Size         -> ",self.Step_Size)
+        print("     Voltage Bins              -> ",self.Bin)
+        print("     Voltage Min               -> ",self.Min)
+        print("     Voltage Max               -> ",self.Max)
+        print("----------------------Run file----------------------")
+        print("     Entries          -> ",self.Size)
+        print("     Reduced Entries  -> ",self.Size_sorted)
+        print("     DAQ Time         -> ",self.DAQTime)        
+        print("     Scans            -> ",self.Scans)
+        print("----------------------------------------------------")
+        print("     Loading time                [s] -> ",self.LoadingTime)
+        print("     Voltage Computation time    [s] -> ",self.ComputationVTime)
+        print("     Wavelenght Computation time [s] -> ",self.ComputationWLTime)
+        print("----------------------------------------------------")
+        print("\n")
+
+    def Compute_Voltages(self):
+
+        start = time.time()
+        # self.Run["DV_cal"]=(self.Run["DV"]+(random()-0.5)*self.data.Step_Size)*self.Cal_m+self.Cal_q
+        if self.Cal_order == 1:
+            self.Run["DV_cal"] = (self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+        elif self.Cal_order == 2:
+            self.Run["DV_cal"] = (self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+        elif self.Cal_order == 3:
+            self.Run["DV_cal"] = (self.Cal[3]*self.Run["DV"]**3+self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+ 
+        # self.Run  = client.persist(self.Run)
+        self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv - self.Run["DV_cal"]
+        
+        
+        self.Sorted = self.Run.compute()
+        self.Size_sorted = len(self.Sorted)
+        self.ComputationVTime = time.time()-start
+        # self.data.DAQTime = (self.data.Run['TS'].max().compute() - self.data.Run['TS'].min().compute())*1.0e-6
+        # self.data.Run.compute()
+        # self.data.Scans = round(self.data.Run['Bunch'].max()/(self.data.Bin+1))
+
+    def Compute_WL(self,Mass,ref,harmonic = 2):
+        start = time.time()
         self.Mass = Mass
         self.Laser_ref = ref
-        self.Sorted["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Sorted["V"],self.Mass)
-        self.Sorted["F"]  = (self.WN_to_f*self.Sorted["WN"]-ref)/1.0e6
-        # 2*self.Laser_set*
+        self.Run["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Run["V"],self.Mass,collinear=False,rest_to_lab=False)
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"]-ref)/1.0e6
+        self.Sorted = self.Run.compute()
+        self.Size_sorted = len(self.Sorted)
+        self.ComputationWLTime = time.time()-start
