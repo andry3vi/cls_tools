@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from numpy import sqrt
 import time
+import math
 
 class CLSDataFrame:
 
@@ -34,6 +35,7 @@ class CLSDataFrame:
         self.Laser_set = None
         self.Laser_ref = None
         self.Step_Size = None
+        self.Cal_df = None
         self.Cal = []
         self.Cal_err = []
         self.Run = None
@@ -52,9 +54,11 @@ class CLSDataFrame:
         self.ComputationWLTime = 0
         self.ComputationBinTime = 0
     
-    def info(self):
+    def Info(self):
 
         print("\n")
+        print("----------------------------------------------------")
+        print("     Run number  -> ",self.run_number)
         print("----------------------Settings----------------------")
         print("     Cooler voltage monitor scaling -> ",self.VCoolDiv)
         print("     LCR voltage monitor scaling    -> ",self.VAccDiv)
@@ -91,7 +95,6 @@ class CLSDataFrame:
         elif self.Cal_order == 3:
             self.Run["DV_cal"] = (self.Cal[3]*self.Run["DV"]**3+self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
  
-        # self.Run  = client.persist(self.Run)
         self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv - self.Run["DV_cal"]
         
         
@@ -112,7 +115,7 @@ class CLSDataFrame:
         self.Size_sorted = len(self.Sorted)
         self.ComputationWLTime = time.time()-start
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None):
+    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None):
         start = time.time()
         self.Run["counts"] = 1
         tmp = self.Run
@@ -122,6 +125,10 @@ class CLSDataFrame:
         if V_gate != None:  
             
             tmp = tmp[tmp.DV<max(V_gate)][tmp.DV>min(V_gate)]
+        
+        if F_gate != None:  
+            
+            tmp = tmp[tmp.F<max(F_gate)][tmp.F>min(F_gate)]
 
         tmp = tmp[["F","counts"]].groupby('F').sum()
         tmp = tmp.compute()
@@ -129,3 +136,65 @@ class CLSDataFrame:
         self.ComputationBinTime = time.time()-start
 
         return tmp.index.to_list(), tmp.values.tolist()
+
+    
+    def Load_Run(self,dir,run,cal_order = 1,blocksize=25e6):
+        start = time.time()
+
+        self.blocksize = blocksize
+        self.dir = dir 
+        self.run_number = str(run) 
+        self.Cal_order = cal_order
+        self.run_filename = dir+"/run_"+str(run)+".csv"
+        self.calib_filename = dir+"/calib_"+str(run)+".csv"
+        
+        #Read cooler and Laser set
+        file = open(self.calib_filename, 'rt',)
+        conf = file.readlines(100)  # Returns a list object
+       
+        self.Vcool_init = float(conf[0].split('Cooler:')[1])
+        self.Laser_set = float(conf[1].split('Laser:')[1])
+        file.close()
+    
+        self.Cal_df = pd.read_csv(self.calib_filename, skiprows = 2, names=["Set","Read"],skip_blank_lines = True)
+
+        self.Step_Size = abs(self.Cal_df.at[1, 'Set']-self.Cal_df.at[0, 'Set'])
+                
+        values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
+
+
+        self.Cal = []
+        self.Cal_err = []
+        for i,v in enumerate(values):
+            self.Cal.append(v)
+            self.Cal_err.append(cov[i,i])
+        self.Cal.reverse()
+        self.Cal_err.reverse()
+
+        self.Max = self.Cal_df["Set"].max()
+        self.Min = self.Cal_df["Set"].min()
+
+        self.Bin = math.floor((self.Max - self.Min)/self.Step_Size)
+
+        self.Run = dd.read_csv(self.run_filename, blocksize=self.blocksize,names=["TS","DV","Bunch","TDC","TOF","Vrfq"],skip_blank_lines = True)  # reading in 25MB chunks
+
+        self.Size = len(self.Run)
+
+        self.LoadingTime = time.time()-start
+        return
+
+    def Update_Cal(self, cal_order = 1):
+
+        self.Cal_order = cal_order
+
+        values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
+
+        self.Cal = []
+        self.Cal_err = []
+        for i,v in enumerate(values):
+            self.Cal.append(v)
+            self.Cal_err.append(cov[i,i])
+        self.Cal.reverse()
+        self.Cal_err.reverse()
+
+        return

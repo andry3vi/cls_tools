@@ -8,7 +8,7 @@ def main():
 
     data = cls.CLSDataFrame()
     start = time.time()
-    cls.Importer("/data/CLS/Data",3783,data,blocksize=10e6)
+    data.Load_Run("/data/CLS/Data",3783,blocksize=15e6,cal_order=1)
     # data.info()
     data.Compute_Voltages()
 
@@ -19,10 +19,9 @@ def main():
 
     Frequency = (Eup-Elow)*WN_to_f
     data.Compute_WL(238,Frequency)
-    print(data.Sorted)
     x,y = data.Compute_Bins(TOF_gate=[100,130] ,V_gate=None)
 
-    data.info()
+    data.Info()
     print('total = ', time.time()-start)
     
     # print(data.Sorted)
@@ -35,7 +34,7 @@ def main():
 
     plt.figure()
     
-    plt.plot(x,y)
+    plt.plot(x,y,drawstyle='steps')
     plt.show()
 
 if __name__ == '__main__':
