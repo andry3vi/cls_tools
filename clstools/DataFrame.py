@@ -39,6 +39,7 @@ class CLSDataFrame:
         self.Cal = []
         self.Cal_err = []
         self.Run = None
+        self.Binned = None
         self.Size = None
         self.Sorted = None
         self.Size_sorted = None
@@ -105,20 +106,28 @@ class CLSDataFrame:
         # self.data.Run.compute()
         # self.data.Scans = round(self.data.Run['Bunch'].max()/(self.data.Bin+1))
 
-    def Compute_WL(self,Mass,ref,harmonic = 2):
+    def Compute_WL(self,Mass,ref=0,harmonic = 2):
         start = time.time()
         self.Mass = Mass
         self.Laser_ref = ref
         self.Run["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Run["V"],self.Mass,collinear=False,rest_to_lab=False)
-        self.Run["F"]  = (self.WN_to_f*self.Run["WN"]-ref)/1.0e6
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])/1.0e6-ref
         self.Sorted = self.Run.compute()
         self.Size_sorted = len(self.Sorted)
         self.ComputationWLTime = time.time()-start
 
+        return
+
+    def Shift_Ref(self,ref=0):
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"]-ref)/1.0e6
+        self.Sorted = self.Run.compute()
+        
+        return
+
     def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None):
         start = time.time()
-        self.Run["counts"] = 1
-        tmp = self.Run
+        tmp = self.Run[['F','TOF','DV']]
+        tmp["counts"] = 1
         if TOF_gate != None:
             tmp = tmp[tmp.TOF<max(TOF_gate)][tmp.TOF>min(TOF_gate)]
 
@@ -131,13 +140,13 @@ class CLSDataFrame:
             tmp = tmp[tmp.F<max(F_gate)][tmp.F>min(F_gate)]
 
         tmp = tmp[["F","counts"]].groupby('F').sum()
-        tmp = tmp.compute()
+        self.Binned = tmp.compute()
 
         self.ComputationBinTime = time.time()-start
 
-        return tmp.index.to_list(), tmp.values.tolist()
+        return
 
-    
+
     def Load_Run(self,dir,run,cal_order = 1,blocksize=25e6):
         start = time.time()
 
@@ -197,4 +206,9 @@ class CLSDataFrame:
         self.Cal.reverse()
         self.Cal_err.reverse()
 
+        return
+
+    def Update_V_divisions(self,VAccDiv = 1000,VCoolDiv = 10000 ):
+        self.VAccDiv = VAccDiv
+        self.VCoolDiv = VCoolDiv
         return
