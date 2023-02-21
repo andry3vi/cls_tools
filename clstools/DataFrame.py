@@ -40,6 +40,8 @@ class CLSDataFrame:
         self.Cal_err = []
         self.Run = None
         self.Binned = None
+        self.ToF_binned = None
+        self.Raw_binned = None
         self.Size = None
         self.Sorted = None
         self.Size_sorted = None
@@ -50,7 +52,10 @@ class CLSDataFrame:
         self.Step_Size = None
         self.Scans = None
         self.Cal_order = None
+        self.Harmonic = 2
         self.LoadingTime = 0
+        self.VtoF_q = 0
+        self.VtoF_m = 1
         self.ComputationVTime = 0
         self.ComputationWLTime = 0
         self.ComputationBinTime = 0
@@ -106,22 +111,64 @@ class CLSDataFrame:
         # self.data.Run.compute()
         # self.data.Scans = round(self.data.Run['Bunch'].max()/(self.data.Bin+1))
 
-    def Compute_WL(self,Mass,ref=0,harmonic = 2):
+    def Compute_WL(self,Mass,ref=0,harmonic = 2, VtoF_cal=False):
         start = time.time()
         self.Mass = Mass
         self.Laser_ref = ref
+        self.Harmonic = harmonic
         self.Run["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Run["V"],self.Mass,collinear=False,rest_to_lab=False)
         self.Run["F"]  = (self.WN_to_f*self.Run["WN"])/1.0e6-ref
         self.Sorted = self.Run.compute()
         self.Size_sorted = len(self.Sorted)
+
+        if VtoF_cal:
+            i_max = self.Sorted['F'].idxmax()
+            i_min = self.Sorted['F'].idxmin()
+            F = [self.Sorted.iloc[i_min]['F'],self.Sorted.iloc[i_max]['F']]
+            V = [self.Sorted.iloc[i_min]['DV'],self.Sorted.iloc[i_max]['DV']]
+            self.VtoF_m = (F[1]-F[0])/(V[1]-V[0])
+            self.VtoF_q =  F[0]-self.VtoF_m*V[0]
+
         self.ComputationWLTime = time.time()-start
 
         return
 
-    def Shift_Ref(self,ref=0):
-        self.Run["F"]  = (self.WN_to_f*self.Run["WN"]-ref)/1.0e6
+    def VtoF(self,x):
+        return x*self.VtoF_m + self.VtoF_q
+
+    def FtoV(self,x):
+        return (x-self.VtoF_q)/self.VtoF_m
+
+    def Shift_Ref(self,ref=0,VtoF_cal=False):
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])/1.0e6-ref
         self.Sorted = self.Run.compute()
-        
+        if VtoF_cal:
+            i_max = self.Sorted['F'].idxmax()
+            i_min = self.Sorted['F'].idxmin()
+            F = [self.Sorted.iloc[i_min]['F'],self.Sorted.iloc[i_max]['F']]
+            V = [self.Sorted.iloc[i_min]['DV'],self.Sorted.iloc[i_max]['DV']]
+            self.VtoF_m = (F[1]-F[0])/(V[1]-V[0])
+            self.VtoF_q =  F[0]-self.VtoF_m*V[0]
+            
+        return
+
+    def Compute_ToF(self,V_gate = None, F_gate= None):
+        tmp = self.Run[['F','TOF','DV']]
+        tmp["counts"] = 1
+        if V_gate != None:  
+            
+            tmp = tmp[tmp.DV<max(V_gate)]
+            tmp = tmp[tmp.DV>min(V_gate)]
+
+        if F_gate != None:  
+            
+            tmp = tmp[tmp.F<max(F_gate)]
+            tmp = tmp[tmp.F>min(F_gate)]
+            
+
+        tmp = tmp[["TOF","counts"]].groupby('TOF').sum()
+        self.ToF_binned = tmp.compute()
+
         return
 
     def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None):
@@ -129,15 +176,19 @@ class CLSDataFrame:
         tmp = self.Run[['F','TOF','DV']]
         tmp["counts"] = 1
         if TOF_gate != None:
-            tmp = tmp[tmp.TOF<max(TOF_gate)][tmp.TOF>min(TOF_gate)]
+            
+            tmp = tmp[tmp.TOF<max(TOF_gate)]
+            tmp = tmp[tmp.TOF>min(TOF_gate)]
 
         if V_gate != None:  
             
-            tmp = tmp[tmp.DV<max(V_gate)][tmp.DV>min(V_gate)]
-        
+            tmp = tmp[tmp.DV<max(V_gate)]
+            tmp = tmp[tmp.DV>min(V_gate)]
+
         if F_gate != None:  
             
-            tmp = tmp[tmp.F<max(F_gate)][tmp.F>min(F_gate)]
+            tmp = tmp[tmp.F<max(F_gate)]
+            tmp = tmp[tmp.F>min(F_gate)]
 
         tmp = tmp[["F","counts"]].groupby('F').sum()
         self.Binned = tmp.compute()
@@ -146,6 +197,23 @@ class CLSDataFrame:
 
         return
 
+    def Compute_Raw_Bins(self,TOF_gate = None, V_gate = None): 
+        tmp = self.Run[['TOF','DV']]
+        tmp["counts"] = 1
+        if TOF_gate != None:
+            
+            tmp = tmp[tmp.TOF<max(TOF_gate)]
+            tmp = tmp[tmp.TOF>min(TOF_gate)]
+
+        if V_gate != None:  
+            
+            tmp = tmp[tmp.DV<max(V_gate)]
+            tmp = tmp[tmp.DV>min(V_gate)]
+
+        tmp = tmp[["DV","counts"]].groupby('DV').sum()
+        self.Raw_binned = tmp.compute()
+
+        return
 
     def Load_Run(self,dir,run,cal_order = 1,blocksize=25e6):
         start = time.time()
