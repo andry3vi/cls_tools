@@ -28,9 +28,10 @@ class CLSDataFrame:
         """Voltage in volts, mass in amu, works for frequency or wavenumber"""
         return frequency * self.dopplerfactor(voltage, mass, collinear, rest_to_lab)
     
-    def __init__(self,VAccDiv = 1000,VCoolDiv = 10000 ):
+    def __init__(self,VAccDiv = 1000,VCoolDiv = 10000, VCoolOffset = 0):
         self.VCoolDiv = VCoolDiv
         self.VAccDiv = VAccDiv
+        self.VCoolOffset = VCoolOffset
         self.Vcool_init = None
         self.Laser_set = None
         self.Laser_ref = None
@@ -67,6 +68,7 @@ class CLSDataFrame:
         print("     Run number  -> ",self.run_number)
         print("----------------------Settings----------------------")
         print("     Cooler voltage monitor scaling -> ",self.VCoolDiv)
+        print("     Cooler voltage offset          -> ",self.VCoolOffset)
         print("     LCR voltage monitor scaling    -> ",self.VAccDiv)
         print("------------------Calibration file------------------")
         print("     Initial Cooler Voltage    -> ",self.Vcool_init*self.VCoolDiv)
@@ -101,7 +103,7 @@ class CLSDataFrame:
         elif self.Cal_order == 3:
             self.Run["DV_cal"] = (self.Cal[3]*self.Run["DV"]**3+self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
  
-        self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv - self.Run["DV_cal"]
+        self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv+self.VCoolOffset - self.Run["DV_cal"]
         
         
         self.Sorted = self.Run.compute()
@@ -276,7 +278,8 @@ class CLSDataFrame:
 
         return
 
-    def Update_V_divisions(self,VAccDiv = 1000,VCoolDiv = 10000 ):
+    def Update_V_divisions(self,VAccDiv = 1000,VCoolDiv = 10000, VcoolOffset = 0 ):
         self.VAccDiv = VAccDiv
         self.VCoolDiv = VCoolDiv
+        self.VCoolOffset = VcoolOffset
         return
