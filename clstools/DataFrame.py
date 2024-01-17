@@ -154,8 +154,8 @@ class CLSDataFrame:
             
         return
 
-    def Compute_ToF(self,V_gate = None, F_gate= None):
-        tmp = self.Run[['F','TOF','DV']]
+    def Compute_ToF(self,V_gate = None, F_gate= None,PMT_gate = None):
+        tmp = self.Run[['F','TOF','DV','TDC']]
         tmp["counts"] = 1
         if V_gate != None:  
             
@@ -167,15 +167,20 @@ class CLSDataFrame:
             tmp = tmp[tmp.F<max(F_gate)]
             tmp = tmp[tmp.F>min(F_gate)]
             
+        if PMT_gate != None:
+            PMTS = [1,2,3,4]
+            excluded = [i for i in PMTS if i not in PMT_gate]
+            for pmt in excluded:
+                tmp = tmp[tmp.TDC != pmt]
 
         tmp = tmp[["TOF","counts"]].groupby('TOF').sum()
         self.ToF_binned = tmp.compute()
 
         return
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None):
+    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None):
         start = time.time()
-        tmp = self.Run[['F','TOF','DV']]
+        tmp = self.Run[['F','TOF','DV','TDC']]
         tmp["counts"] = 1
         if TOF_gate != None:
             
@@ -191,6 +196,12 @@ class CLSDataFrame:
             
             tmp = tmp[tmp.F<max(F_gate)]
             tmp = tmp[tmp.F>min(F_gate)]
+
+        if PMT_gate != None:
+            PMTS = [1,2,3,4]
+            excluded = [i for i in PMTS if i not in PMT_gate]
+            for pmt in excluded:
+                tmp = tmp[tmp.TDC != pmt]
 
         tmp = tmp[["F","counts"]].groupby('F').sum()
         self.Binned = tmp.compute()
@@ -199,8 +210,8 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Raw_Bins(self,TOF_gate = None, V_gate = None): 
-        tmp = self.Run[['TOF','DV']]
+    def Compute_Raw_Bins(self,TOF_gate = None, V_gate = None,PMT_gate = None): 
+        tmp = self.Run[['TOF','DV','TDC']]
         tmp["counts"] = 1
         if TOF_gate != None:
             
@@ -211,6 +222,12 @@ class CLSDataFrame:
             
             tmp = tmp[tmp.DV<max(V_gate)]
             tmp = tmp[tmp.DV>min(V_gate)]
+
+        if PMT_gate != None:
+            PMTS = [1,2,3,4]
+            excluded = [i for i in PMTS if i not in PMT_gate]
+            for pmt in excluded:
+                tmp = tmp[tmp.TDC != pmt]
 
         tmp = tmp[["DV","counts"]].groupby('DV').sum()
         self.Raw_binned = tmp.compute()
