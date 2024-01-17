@@ -136,9 +136,11 @@ class CLSDataFrame:
         return
 
     def VtoF(self,x):
+        #Don't use this to convert voltage to frequency, it is only for a fast rough visualization purpose!!!!
         return x*self.VtoF_m + self.VtoF_q
 
     def FtoV(self,x):
+        #Don't use this to convert voltage to frequency, it is only for a fast rough visualization purpose!!!!
         return (x-self.VtoF_q)/self.VtoF_m
 
     def Shift_Ref(self,ref=0,VtoF_cal=False):
