@@ -53,7 +53,7 @@ def main():
    
     F = np.array(data.Binned.index.to_list())
     C = np.array(data.Binned.values[:,0])
-    frequency_binning=20 #MHz_
+    frequency_binning=20 #MHz
     bins = np.linspace(F.min(),F.max(),int((F.max()-F.min())/frequency_binning))
 
     C_binned,F_binned, patch = axs.hist(F,bins=bins, weights = C,histtype='step') 

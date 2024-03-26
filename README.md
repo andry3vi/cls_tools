@@ -9,7 +9,7 @@ Simply run in the main directory:
 
 `pip install .`
 
-Import in your code as 
+Import in your code as
 
 `import clstools as cls`
 
