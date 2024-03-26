@@ -4,6 +4,7 @@ import numpy as np
 from numpy import sqrt
 import time
 import math
+import asdf
 
 class CLSDataFrame:
 
@@ -180,10 +181,11 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None):
+    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None, noise_filter = False):
         start = time.time()
-        tmp = self.Run[['F','TOF','DV','TDC']]
+        tmp = self.Run[['TS','F','TOF','DV','TDC']]
         tmp["counts"] = 1
+        
         if TOF_gate != None:
             
             tmp = tmp[tmp.TOF<max(TOF_gate)]
@@ -206,6 +208,7 @@ class CLSDataFrame:
                 tmp = tmp[tmp.TDC != pmt]
 
         tmp = tmp[["F","counts"]].groupby('F').sum()
+        
         self.Binned = tmp.compute()
 
         self.ComputationBinTime = time.time()-start
@@ -243,39 +246,37 @@ class CLSDataFrame:
         self.dir = dir 
         self.run_number = str(run) 
         self.Cal_order = cal_order
-        self.run_filename = dir+"/run_"+str(run)+".csv"
-        self.calib_filename = dir+"/calib_"+str(run)+".csv"
+        self.run_filename = dir+"/run_"+str(run)+".asdf"
+
+        with asdf.open(self.run_filename, copy_arrays=True) as af:
+                            
+            self.Vcool_init = af.tree['CoolerVoltage']
+            self.Laser_set = af.tree['LaserSetpoint']
+            
+            cal = [[set,read] for set,read in zip(af['CalSet'],af['CalReadback'])]
         
-        #Read cooler and Laser set
-        file = open(self.calib_filename, 'rt',)
-        conf = file.readlines(100)  # Returns a list object
-       
-        self.Vcool_init = float(conf[0].split('Cooler:')[1])
-        self.Laser_set = float(conf[1].split('Laser:')[1])
-        file.close()
-    
-        self.Cal_df = pd.read_csv(self.calib_filename, skiprows = 2, names=["Set","Read"],skip_blank_lines = True)
+            self.Cal_df = pd.DataFrame(cal, columns=["Set","Read"])
 
-        self.Step_Size = abs(self.Cal_df.at[1, 'Set']-self.Cal_df.at[0, 'Set'])
-                
-        values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
+            self.Step_Size = af.tree['StepSize']
+                    
+            values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
 
 
-        self.Cal = []
-        self.Cal_err = []
-        for i,v in enumerate(values):
-            self.Cal.append(v)
-            self.Cal_err.append(cov[i,i])
-        self.Cal.reverse()
-        self.Cal_err.reverse()
+            self.Cal = []
+            self.Cal_err = []
+            for i,v in enumerate(values):
+                self.Cal.append(v)
+                self.Cal_err.append(cov[i,i])
+            self.Cal.reverse()
+            self.Cal_err.reverse()
 
-        self.Max = self.Cal_df["Set"].max()
-        self.Min = self.Cal_df["Set"].min()
+            self.Max = self.Cal_df["Set"].max()
+            self.Min = self.Cal_df["Set"].min()
 
-        self.Bin = math.floor((self.Max - self.Min)/self.Step_Size)
+            self.Bin = math.floor((self.Max - self.Min)/self.Step_Size)
 
-        self.Run = dd.read_csv(self.run_filename, blocksize=self.blocksize,names=["TS","DV","Bunch","TDC","TOF","Vrfq"],skip_blank_lines = True)  # reading in 25MB chunks
-
+            self.Run = dd.from_array(np.array(af.tree['raw']),columns=["TS","DV","Bunch","TDC","TOF","Vrfq"])
+        
         self.Size = len(self.Run)
 
         self.LoadingTime = time.time()-start
