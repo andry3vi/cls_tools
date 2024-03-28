@@ -18,12 +18,12 @@ def main():
     TOF_GATE = [37.9,47.3]
     PMT_GATE = [3,4]
     data = cls.CLSDataFrame()
-    data.Load_Run("/data/CLS/Data/2024/03/26/",5149,blocksize=15e6,cal_order=1)
+    data.Load_Run("/data/CLS/Data/2024/03/26/",5136,blocksize=15e6,cal_order=1)
     data.Compute_Voltages()
     data.Compute_WL(Mass=53,ref=Frequency,harmonic=4)
     data.Compute_ToF(PMT_gate=PMT_GATE )
     data.Compute_Raw_Bins(TOF_gate=TOF_GATE,PMT_gate=PMT_GATE )
-    data.Compute_Bins(TOF_gate=TOF_GATE,PMT_gate=PMT_GATE ,noise_filter=True)
+    data.Compute_Bins(TOF_gate=TOF_GATE,PMT_gate=PMT_GATE)
     data.Info()
     
     fig_TOF, axs_TOF = plt.subplots(figsize=(16,9), dpi=100)
@@ -47,6 +47,7 @@ def main():
     V = np.array(data.Raw_binned.index.to_list())
     C = np.array(data.Raw_binned.values[:,0])
 
+    V,C = zip(*sorted(zip(V,C)))
     axs_RAW.plot(V,C,drawstyle='steps') 
     axs_RAW.set_ylabel("Counts [n.u.]")
     axs_RAW.set_xlabel('LCR Votlage [V]')
@@ -56,13 +57,54 @@ def main():
    
     F = np.array(data.Binned.index.to_list())
     C = np.array(data.Binned.values[:,0])
+    
     frequency_binning=20 #MHz
+    bins = np.linspace(F.min(),F.max(),int((F.max()-F.min())/frequency_binning))
+
+    C_binned,F_binned, patch = axs.hist(F,bins=bins, weights = C,histtype='step') 
+    
+    data.apply_filter(filter_window=4)
+    data.Compute_Bins(TOF_gate=TOF_GATE,PMT_gate=PMT_GATE )
+    
+    F = np.array(data.Binned.index.to_list())
+    C = np.array(data.Binned.values[:,0])
     bins = np.linspace(F.min(),F.max(),int((F.max()-F.min())/frequency_binning))
 
     C_binned,F_binned, patch = axs.hist(F,bins=bins, weights = C,histtype='step') 
     axs.set_ylabel("Counts [n.u.]")
     axs.set_xlabel("Frequency [MHz]")
     axs.set_title('Frequency scan')
+
+
+    fig, axs = plt.subplots(figsize=(16,9), dpi=100)
+    
+    
+    tmp = data.Run.compute()
+    axs.hist(tmp['TS'],bins=1000)
+
+    
+    # tmp['filter'] = True
+    # tmp['filter'] = tmp.groupby("TS")['filter'].transform(lambda x: (False if x.size>2 else True))
+    # print(tmp)
+    # group_keys=True, as_index=False
+    # axs.hist(tmp[tmp['filter']]['TS'],bins=1000)
+    # tmp = tmp.groupby('TS').sum()
+    # print(tmp[tmp['counts']>3])
+
+    # tmp[["DV","counts"]].groupby('DV').sum()
+    
+    # tmp = tmp[tmp.TOF<max(TOF_GATE)]
+    # tmp = tmp[tmp.TOF>min(TOF_GATE)]
+
+
+
+    # PMTS = [1,2,3,4]
+    # excluded = [i for i in PMTS if i not in PMT_GATE]
+    # for pmt in excluded:
+    #     tmp = tmp[tmp.TDC != pmt]
+    
+    #     # tmp = tmp[["DV","counts"]].groupby('DV').sum()
+    #     # self.Raw_binned = tmp.compute()
     
     plt.show()
 

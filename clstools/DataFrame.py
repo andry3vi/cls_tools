@@ -157,6 +157,18 @@ class CLSDataFrame:
             
         return
 
+    def apply_filter(self,filter_window=0):
+        tmp = self.Run
+
+        if filter_window>0:
+            tmp = tmp.compute()
+            tmp['filter'] = True
+            tmp['filter'] = tmp.groupby("TS")['filter'].transform(lambda x: (False if x.size>filter_window else True))
+            tmp = tmp[tmp['filter']]
+            self.Run = dd.from_pandas(tmp,npartitions=6)
+        
+        return
+    
     def Compute_ToF(self,V_gate = None, F_gate= None,PMT_gate = None):
         tmp = self.Run[['F','TOF','DV','TDC']]
         tmp["counts"] = 1
@@ -181,9 +193,10 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None, noise_filter = False):
+    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None):
         start = time.time()
         tmp = self.Run[['TS','F','TOF','DV','TDC']]
+
         tmp["counts"] = 1
         
         if TOF_gate != None:
