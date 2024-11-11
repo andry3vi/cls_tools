@@ -12,6 +12,6 @@ setup(name='clstools',
           'pandas',
           'scipy',
           'dask[complete]',
-          'asdf'
+          'asdf',
       ],
       zip_safe=False)

@@ -5,6 +5,8 @@ from numpy import sqrt
 import time
 import math
 import asdf
+import operator
+from functools import reduce
 
 class CLSDataFrame:
 
@@ -58,20 +60,26 @@ class CLSDataFrame:
         self.LoadingTime = 0
         self.VtoF_q = 0
         self.VtoF_m = 1
+        self.StartTime = None
         self.ComputationVTime = 0
         self.ComputationWLTime = 0
         self.ComputationBinTime = 0
+        self.DwellTime = 0
+        self.ScanningRanges = None
+        self.Bunch_number = 0
+        self.TimePerStep = 0
     
     def Info(self):
 
         print("\n")
         print("----------------------------------------------------")
         print("     Run number  -> ",self.run_number)
+        print("     Start time  -> ",self.StartTime)
         print("----------------------Settings----------------------")
         print("     Cooler voltage monitor scaling -> ",self.VCoolDiv)
         print("     Cooler voltage offset          -> ",self.VCoolOffset)
         print("     LCR voltage monitor scaling    -> ",self.VAccDiv)
-        print("------------------Calibration file------------------")
+        print("--------------------Calibration---------------------")
         print("     Initial Cooler Voltage    -> ",self.Vcool_init*self.VCoolDiv)
         print("     Laser Setpoint            -> ",self.Laser_set)
         print("     Calibration [p0 p1 p2 ...] -> ", [self.VAccDiv*i for i in self.Cal])
@@ -80,11 +88,18 @@ class CLSDataFrame:
         print("     Voltage Bins              -> ",self.Bin)
         print("     Voltage Min               -> ",self.Min)
         print("     Voltage Max               -> ",self.Max)
-        print("----------------------Run file----------------------")
+        print("-------------------------Run------------------------")
         print("     Entries          -> ",self.Size)
         print("     Reduced Entries  -> ",self.Size_sorted)
         print("     DAQ Time         -> ",self.DAQTime)        
         print("     Scans            -> ",self.Scans)
+        print("     DwellTime        -> ",self.DwellTime)
+        print("     Number of bunches-> ",self.Bunch_number)
+        print("     Time per step    -> ",self.TimePerStep)        
+        print("     --- Scanning ranges ---")
+        for ranges in self.ScanningRanges:
+            print("     From {} V to {} V".format(ranges[0],ranges[1]))
+
         print("----------------------------------------------------")
         print("     Loading time                [s] -> ",self.LoadingTime)
         print("     Voltage Computation time    [s] -> ",self.ComputationVTime)
@@ -123,7 +138,6 @@ class CLSDataFrame:
         self.Run["F"]  = (self.WN_to_f*self.Run["WN"])/1.0e6-ref
         self.Sorted = self.Run.compute()
         self.Size_sorted = len(self.Sorted)
-
         if VtoF_cal:
             i_max = self.Sorted['F'].idxmax()
             i_min = self.Sorted['F'].idxmin()
@@ -205,9 +219,19 @@ class CLSDataFrame:
             tmp = tmp[tmp.TOF>min(TOF_gate)]
 
         if V_gate != None:  
-            
-            tmp = tmp[tmp.DV<max(V_gate)]
-            tmp = tmp[tmp.DV>min(V_gate)]
+            try:
+
+                conditions = []
+                for i in range(len(V_gate)):
+                    conditions.append( (tmp.DV >= min(V_gate[i])) & (tmp.DV < max(V_gate[i])))
+                
+                cond = conditions[0]
+                for c in conditions[1:]:
+                    cond = cond | c
+                tmp = tmp[cond]
+            except:
+                tmp = tmp[tmp.DV<max(V_gate)]
+                tmp = tmp[tmp.DV>min(V_gate)]
 
         if F_gate != None:  
             
@@ -260,11 +284,13 @@ class CLSDataFrame:
         self.run_number = str(run) 
         self.Cal_order = cal_order
         self.run_filename = dir+"/run_"+str(run)+".asdf"
-
         with asdf.open(self.run_filename, copy_arrays=True) as af:
                             
             self.Vcool_init = af.tree['CoolerVoltage']
             self.Laser_set = af.tree['LaserSetpoint']
+            self.StartTime = af.tree['Date']
+            self.ScanningRanges = af.tree['ScanningRanges']
+            self.DwellTime = af.tree['DwellTime']
             
             cal = [[set,read] for set,read in zip(af['CalSet'],af['CalReadback'])]
         
@@ -290,9 +316,14 @@ class CLSDataFrame:
 
             self.Run = dd.from_array(np.array(af.tree['raw']),columns=["TS","DV","Bunch","TDC","TOF","Vrfq"])
         
+        self.DAQTime = (self.Run['TS'].max()-self.Run['TS'].min()).compute()
         self.Size = len(self.Run)
-
         self.LoadingTime = time.time()-start
+        self.Bunch_number = self.Run['Bunch'].max().compute()+1
+        steps = 0
+        for ranges in self.ScanningRanges:
+            steps+= int((max(ranges)-min(ranges))/self.Step_Size)
+        self.TimePerStep = self.DAQTime/steps #very Rough
         return
 
     def Update_Cal(self, cal_order = 1):
