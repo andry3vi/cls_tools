@@ -5,7 +5,7 @@ from numpy import sqrt
 import time
 import math
 import asdf
-
+import datetime
 class CLSDataFrame:
 
     e = 1.602176634e-19 #C
@@ -35,29 +35,30 @@ class CLSDataFrame:
         self.VCoolOffset = VCoolOffset
         self.Vcool_init = None
         self.Laser_set = None
-        self.Laser_ref = None
+        self.Reference = None
         self.Step_Size = None
+        self.ScanningRanges = None
         self.Cal_df = None
         self.Cal = []
         self.Cal_err = []
+        self.Cal_order = None
         self.Run = None
         self.Binned = None
         self.ToF_binned = None
         self.Raw_binned = None
         self.Size = None
         self.Sorted = None
-        self.Size_sorted = None
-        self.Max = None
-        self.Min = None
-        self.Bin = None
-        self.DAQTime = None
-        self.Step_Size = None
+        self.Bins = None
+        self.DAQTStime = None
+        self.TSstart = None
+        self.TSstop = None
         self.Scans = None
-        self.Cal_order = None
         self.Harmonic = 2
+        self.Dwell_Time = None
+        self.Experiment = None
+        self.Date = None
+        self.Frequency_stepsize = None
         self.LoadingTime = 0
-        self.VtoF_q = 0
-        self.VtoF_m = 1
         self.ComputationVTime = 0
         self.ComputationWLTime = 0
         self.ComputationBinTime = 0
@@ -65,31 +66,37 @@ class CLSDataFrame:
     def Info(self):
 
         print("\n")
-        print("----------------------------------------------------")
+        print("-----------------------------------------------------")
         print("     Run number  -> ",self.run_number)
-        print("----------------------Settings----------------------")
+        print("     Experiment  -> ",self.Experiment)
+        print("     Date        -> ",self.Date)
+        print("     Filename    -> ",self.run_filename)
+        print("-----------------V-division settings-----------------")
         print("     Cooler voltage monitor scaling -> ",self.VCoolDiv)
         print("     Cooler voltage offset          -> ",self.VCoolOffset)
         print("     LCR voltage monitor scaling    -> ",self.VAccDiv)
-        print("------------------Calibration file------------------")
-        print("     Initial Cooler Voltage    -> ",self.Vcool_init*self.VCoolDiv)
-        print("     Laser Setpoint            -> ",self.Laser_set)
+        print("---------------------Calibration---------------------")
+        print("     Initial Cooler Voltage [V] -> ",self.Vcool_init*self.VCoolDiv)
+        print("     Laser Setpoint      [cm-1] -> ",self.Laser_set)
         print("     Calibration [p0 p1 p2 ...] -> ", [self.VAccDiv*i for i in self.Cal])
         print("     Calibration [e0 e1 e2 ...] -> ", [self.VAccDiv*i for i in self.Cal_err])
-        print("     Voltage Step Size         -> ",self.Step_Size)
-        print("     Voltage Bins              -> ",self.Bin)
-        print("     Voltage Min               -> ",self.Min)
-        print("     Voltage Max               -> ",self.Max)
-        print("----------------------Run file----------------------")
-        print("     Entries          -> ",self.Size)
-        print("     Reduced Entries  -> ",self.Size_sorted)
-        print("     DAQ Time         -> ",self.DAQTime)        
-        print("     Scans            -> ",self.Scans)
+        print("-------------------Scanning Ranges-------------------")
+        print("     Voltage Step Size        [V] -> ",self.Step_Size)
+        print("     Frequency Step Size    [MHz] -> ",self.Frequency_stepsize/1e6)
+        for range in self.ScanningRanges:
+            print("         from {} V to {} V".format(range[0],range[1]))
+        print("--------------------General info---------------------")
+        print("     Entries              -> ",self.Size)
+        print("     DAQ Time         [s] -> ",self.DAQTStime)  
+        print("     start TS [Unix Time] -> ",self.TSstart)
+        print("     stop  TS [Unix Time] -> ",self.TSstop)
+        print("     start date           -> ",datetime.datetime.fromtimestamp(self.TSstart))  
+        print("     stop date            -> ",datetime.datetime.fromtimestamp(self.TSstop))  
         print("----------------------------------------------------")
         print("     Loading time                [s] -> ",self.LoadingTime)
         print("     Voltage Computation time    [s] -> ",self.ComputationVTime)
         print("     Wavelenght Computation time [s] -> ",self.ComputationWLTime)
-        print("     Bin Computation time        [s] -> ",self.ComputationBinTime)
+        print("     Binning Computation time    [s] -> ",self.ComputationBinTime)
         print("----------------------------------------------------")
         print("\n")
 
@@ -109,52 +116,29 @@ class CLSDataFrame:
         
         
         self.Sorted = self.Run.compute()
-        self.Size_sorted = len(self.Sorted)
         self.ComputationVTime = time.time()-start
-        # self.data.DAQTime = (self.data.Run['TS'].max().compute() - self.data.Run['TS'].min().compute())*1.0e-6
-        # self.data.Run.compute()
-        # self.data.Scans = round(self.data.Run['Bunch'].max()/(self.data.Bin+1))
-
-    def Compute_WL(self,Mass,ref=0,harmonic = 2, VtoF_cal=False):
+        
+    def Compute_WL(self,Mass,ref=0,harmonic = 2):
         start = time.time()
         self.Mass = Mass
-        self.Laser_ref = ref
+        self.Reference = ref
         self.Harmonic = harmonic
+        self.Frequency_stepsize = np.abs(self.dopplershift(harmonic*self.Laser_set,self.Vcool_init*self.VCoolDiv,self.Mass,collinear=False,rest_to_lab=False)
+                                        -self.dopplershift(harmonic*self.Laser_set,self.Vcool_init*self.VCoolDiv+self.Step_Size,self.Mass,collinear=False,rest_to_lab=False))
+        self.Frequency_stepsize = self.Frequency_stepsize*self.WN_to_f
         self.Run["WN"] = self.dopplershift(harmonic*self.Laser_set,self.Run["V"],self.Mass,collinear=False,rest_to_lab=False)
-        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])-ref
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])-self.Reference
         self.Sorted = self.Run.compute()
-        self.Size_sorted = len(self.Sorted)
-
-        if VtoF_cal:
-            i_max = self.Sorted['F'].idxmax()
-            i_min = self.Sorted['F'].idxmin()
-            F = [self.Sorted.iloc[i_min]['F'],self.Sorted.iloc[i_max]['F']]
-            V = [self.Sorted.iloc[i_min]['DV'],self.Sorted.iloc[i_max]['DV']]
-            self.VtoF_m = (F[1]-F[0])/(V[1]-V[0])
-            self.VtoF_q =  F[0]-self.VtoF_m*V[0]
 
         self.ComputationWLTime = time.time()-start
 
         return
 
-    def VtoF(self,x):
-        #Don't use this to convert voltage to frequency, it is only for a fast rough visualization purpose!!!!
-        return x*self.VtoF_m + self.VtoF_q
-
-    def FtoV(self,x):
-        #Don't use this to convert voltage to frequency, it is only for a fast rough visualization purpose!!!!
-        return (x-self.VtoF_q)/self.VtoF_m
-
-    def Shift_Ref(self,ref=0,VtoF_cal=False):
-        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])/1.0e6-ref
+    def Shift_Ref(self,ref=0):
+        self.Reference = ref
+        self.Run["F"]  = (self.WN_to_f*self.Run["WN"])-self.Reference
         self.Sorted = self.Run.compute()
-        if VtoF_cal:
-            i_max = self.Sorted['F'].idxmax()
-            i_min = self.Sorted['F'].idxmin()
-            F = [self.Sorted.iloc[i_min]['F'],self.Sorted.iloc[i_max]['F']]
-            V = [self.Sorted.iloc[i_min]['DV'],self.Sorted.iloc[i_max]['DV']]
-            self.VtoF_m = (F[1]-F[0])/(V[1]-V[0])
-            self.VtoF_q =  F[0]-self.VtoF_m*V[0]
+
             
         return
 
@@ -189,12 +173,10 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None):
+    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None, bins=None):
         start = time.time()
-        tmp = self.Run[['TS','F','TOF','DV','TDC']]
-
-        tmp["counts"] = 1
-        
+        tmp = self.Run[['TS','F','TOF','DV','TDC','V']]
+       
         if TOF_gate != None:
             
             tmp = tmp[tmp.TOF<max(TOF_gate)]
@@ -215,12 +197,24 @@ class CLSDataFrame:
             excluded = [i for i in PMTS if i not in PMT_gate]
             for pmt in excluded:
                 tmp = tmp[tmp.TDC != pmt]
-
-        self.Binned = tmp[["DV","counts","F"]].groupby('DV').agg({'counts': ['sum'], 'F': ['mean', 'std']}).compute()
         
-        self.Binned = self.Binned.sort_values(by=[('F','mean')])
+        self.Binned = tmp.compute()
+        maxF = self.Binned['F'].max()
+        minF = self.Binned['F'].min()
+        indexedbins = None
+        if bins != None:
+            indexedbins = bins
+        else:
+            indexedbins = int((maxF-minF)/self.Frequency_stepsize)
+           
 
-        # print(tmp)
+        self.Binned['bins'] = pd.cut(x=self.Binned['F'],bins=indexedbins)
+        self.Binned = self.Binned.groupby(by='bins',as_index=False,observed=False).aggregate({'F': ['count','mean', 'std'],'V':['mean','std']}).pipe(lambda x: x.set_axis(x.columns.map(''.join), axis=1))
+        self.Binned = self.Binned.sort_values(by=['bins'])
+        self.Binned["bins_center"] =self.Binned["bins"].apply(lambda x: x.mid).astype(float)
+        self.Binned["bins_width"] =self.Binned["bins"].apply(lambda x: x.length).astype(float)
+        self.Binned['Fmean'] = self.Binned[['Fmean','bins_center']].apply(lambda x: x['bins_center'] if np.isnan(x['Fmean']) else x['Fmean'],axis=1)
+        self.Binned['Fstd'] = self.Binned[['Fstd','bins_width']].apply(lambda x: x['bins_width']*0.5 if np.isnan(x['Fstd']) else x['Fstd'],axis=1)
         self.ComputationBinTime = time.time()-start
 
         return
@@ -249,29 +243,30 @@ class CLSDataFrame:
 
         return
 
-    def Load_Run(self,dir,run,cal_order = 1,blocksize=25e6):
+    def Load_Run(self,filename,cal_order = 1,blocksize=25e6):
         start = time.time()
 
         self.blocksize = blocksize
-        self.dir = dir 
-        self.run_number = str(run) 
         self.Cal_order = cal_order
-        self.run_filename = dir+"/run_"+str(run)+".asdf"
+        self.run_filename = filename
 
-        with asdf.open(self.run_filename, copy_arrays=True) as af:
-                            
+        with asdf.open(self.run_filename) as af:
+                
+            self.run_number = af.tree['Run'] 
             self.Vcool_init = af.tree['CoolerVoltage']
             self.Laser_set = af.tree['LaserSetpoint']
-            
-            cal = [[set,read] for set,read in zip(af['CalSet'],af['CalReadback'])]
-        
-            self.Cal_df = pd.DataFrame(cal, columns=["Set","Read"])
-
+            self.Dwell_Time = af.tree['DwellTime']
+            self.Experiment = af.tree['Experiment']
+            self.Date = af.tree['Date']
             self.Step_Size = af.tree['StepSize']
-                    
+            self.ScanningRanges = af.tree['ScanningRanges']
+
+            cal = [[set,read] for set,read in zip(af['CalSet'],af['CalReadback'])]
+            self.Cal_df = pd.DataFrame(cal, columns=["Set","Read"])
+            # self.Cal_df = pd.DataFrame({"Set":af['CalSet'], "Read":af['CalReadback']})
+
             values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
-
-
+            
             self.Cal = []
             self.Cal_err = []
             for i,v in enumerate(values):
@@ -280,13 +275,12 @@ class CLSDataFrame:
             self.Cal.reverse()
             self.Cal_err.reverse()
 
-            self.Max = self.Cal_df["Set"].max()
-            self.Min = self.Cal_df["Set"].min()
-
-            self.Bin = math.floor((self.Max - self.Min)/self.Step_Size)
-
             self.Run = dd.from_array(np.array(af.tree['raw']),columns=["TS","DV","Bunch","TDC","TOF","Vrfq"])
         
+        self.TSstart = self.Run['TS'].min().compute()
+        self.TSstop = self.Run['TS'].max().compute()
+        
+        self.DAQTStime = self.TSstop-self.TSstart
         self.Size = len(self.Run)
 
         self.LoadingTime = time.time()-start

@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='clstools',
-      version='0.4-dev',
+      version='0.4.1',
       description='set of tool to load and sort IGISOL cls data',
       url='https://gitlab.jyu.fi/araggio/cls_tools',
       author='Oiggart',
