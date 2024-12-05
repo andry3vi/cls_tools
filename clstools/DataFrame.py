@@ -100,6 +100,35 @@ class CLSDataFrame:
         print("----------------------------------------------------")
         print("\n")
 
+    def Info_to_csv(self,filename):
+        output = {
+                'VCoolDiv':[self.VCoolDiv], 
+                'VAccDiv':[self.VAccDiv], 
+                'VCoolOffset':[self.VCoolOffset], 
+                'Vcool_init':[self.Vcool_init], 
+                'DAQTStime':[self.DAQTStime], 
+                'TSstart':[self.TSstart], 
+                'TSstop':[self.TSstop], 
+                'Laser_set':[self.Laser_set], 
+                'Harmonic':[self.Harmonic], 
+                'Dwell_Time':[self.Dwell_Time], 
+                'Step_Size':[self.Step_Size], 
+                'Frequency_stepsize':[self.Frequency_stepsize], 
+                'Experiment':[self.Experiment], 
+                }
+        for ix,range in enumerate(self.ScanningRanges):
+            output['Scan_range_low_{}'.format(ix)] = [min(range)]
+            output['Scan_range_high_{}'.format(ix)] = [max(range)]
+        
+        output['Cal_order'] = [self.Cal_order]
+        for ix,C in enumerate(zip(self.Cal,self.Cal_err)):
+            output['Cal_p{}'.format(ix)] = [C[0]]
+            output['Cal_dp{}'.format(ix)] = [C[1]]
+
+        df_out = pd.DataFrame(output)
+        df_out.to_csv(filename,index=False)
+        pass
+
     def Compute_Voltages(self):
 
         start = time.time()
@@ -167,7 +196,6 @@ class CLSDataFrame:
             excluded = [i for i in PMTS if i not in PMT_gate]
             for pmt in excluded:
                 tmp = tmp[tmp.TDC != pmt]
-
         tmp = tmp[["TOF","counts"]].groupby('TOF').sum()
         self.ToF_binned = tmp.compute()
 

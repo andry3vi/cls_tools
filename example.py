@@ -42,7 +42,7 @@ def main():
     # F = np.array(data.Binned.index.to_list())
     # C = np.array(data.Binned.values[:,0])
     
-    # frequency_binning=20 #MHz
+    # frequency_binning=20 #MHzZ
     # bins = np.linspace(F.min(),F.max(),int((F.max()-F.min())/frequency_binning))
 
     # axs.plot(data.Binned['Fmean']/1e6,data.Binned['Fcount'])
