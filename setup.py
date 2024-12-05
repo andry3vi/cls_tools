@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='clstools',
-      version='0.3',
+      version='0.4-dev',
       description='set of tool to load and sort IGISOL cls data',
       url='https://gitlab.jyu.fi/araggio/cls_tools',
       author='Oiggart',
@@ -12,6 +12,6 @@ setup(name='clstools',
           'pandas',
           'scipy',
           'dask[complete]',
-          'asdf',
+          'asdf'
       ],
       zip_safe=False)
