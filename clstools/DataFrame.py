@@ -129,7 +129,7 @@ class CLSDataFrame:
         df_out.to_csv(filename,index=False)
         pass
 
-    def Compute_Voltages(self):
+    def Compute_Voltages(self,cooler_correction='pbp'):
 
         start = time.time()
         # self.Run["DV_cal"]=(self.Run["DV"]+(random()-0.5)*self.data.Step_Size)*self.Cal_m+self.Cal_q
@@ -139,10 +139,15 @@ class CLSDataFrame:
             self.Run["DV_cal"] = (self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
         elif self.Cal_order == 3:
             self.Run["DV_cal"] = (self.Cal[3]*self.Run["DV"]**3+self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
- 
-        self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv+self.VCoolOffset - self.Run["DV_cal"]
-        # self.Run['V'] = 3*self.VCoolDiv+self.VCoolOffset - self.Run["DV_cal"]
-        
+
+        # if cooler_correction in ['ptp','mean','linear']:
+            
+        if cooler_correction == 'pbp':
+            self.Run['V'] = self.Run["Vrfq"]*self.VCoolDiv+self.VCoolOffset - self.Run["DV_cal"]
+        elif cooler_correction == 'mean':
+            self.Run['V'] = self.Run["Vrfq"].mean().compute()*self.VCoolDiv+self.VCoolOffset - self.Run["DV_cal"]
+        else:
+            raise AttributeError("Error in cooler_correction parameter. Use one between pbp and mean")        
         
         self.Sorted = self.Run.compute()
         self.ComputationVTime = time.time()-start

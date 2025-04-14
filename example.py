@@ -43,8 +43,6 @@ def main():
     axs.set_ylabel("Counts [n.u.]")
     axs.set_xlabel("Frequency [MHz]")
     plt.show()
-    
-   
 
 if __name__ == '__main__':
     main()
