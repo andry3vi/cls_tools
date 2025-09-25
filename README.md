@@ -1,17 +1,54 @@
 # CLS_tools
 
-A python class to handle IGISOL collinear laser spectroscopy data files. 
-The class make use of [dask](https://docs.dask.org/) dataframes for the initial data sorting. This allows for a intrinsic paralelization of the tasks and a considerably faster processing time.
-New version 0.3 works with asdf file formats
+A lightweight utility package for loading and processing IGISOL collinear laser spectroscopy (CLS) run files.
 
-## installation
+This project provides a single main class, `CLSDataFrame`, which uses Dask DataFrames for initial sorting and
+Pandas/Numpy for subsequent processing. The loader supports ASDF run files 
 
-Simply run in the main directory:
+## Features
 
-`pip install .`
+- Load ASDF run files and extract run metadata
+- Compute calibrated voltages from divider calibrations
+- Convert cooler/scan voltages into particle-frame frequencies using relativistic Doppler formulas
+- Bin data in frequency or time-of-flight (ToF), with optional gating by PMT / voltage / ToF ranges
 
-Import in your code as
+## Installation
 
-`import clstools as cls`
+This project uses a `pyproject.toml`-based build. From the project root directory run:
 
-For a detailed example check [example.py](example.py).
+```powershell
+pip install .
+```
+Or build a wheel and install it:
+
+```powershell
+# optional: create a wheel
+python -m build
+pip install dist\clstools-0.4.2-py3-none-any.whl
+```
+If you use `uv` you can run the example directly without creating a venv or installing:
+
+```powershell
+uv run python .\example.py
+```
+
+## Requirements
+
+The core runtime dependencies (declared in `pyproject.toml`) are:
+
+- pandas
+- dask[complete]
+- asdf
+- numpy
+
+These are installed automatically by `pip install .`.
+
+## Quick usage
+
+A runnable example is provided in `example.py` which demonstrates a typical analysis flow and plotting.
+
+## License
+
+GPL-3.0 — see `pyproject.toml` for metadata.
+
+

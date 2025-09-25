@@ -1,11 +1,11 @@
+from typing import Union, List, Optional
 import dask.dataframe as dd
 import pandas as pd
 import numpy as np
-from numpy import sqrt
 import time
-import math
 import asdf
 import datetime
+
 class CLSDataFrame:
 
     e = 1.602176634e-19 #C
@@ -15,8 +15,27 @@ class CLSDataFrame:
 
     WN_to_f = 1e2*c 
 
-    def dopplerfactor(self,voltage, mass, collinear = True, rest_to_lab = True):
-        """Voltage in volts, mass in amu"""
+    def dopplerfactor(self,voltage: Union[float, np.ndarray], mass: float, collinear: bool = True, rest_to_lab: bool = True) -> Union[float,np.ndarray]:
+        """
+        Calculate the relativistic Doppler factor for a particle given its acceleration voltage and mass.
+
+        Parameters
+        ----------
+        voltage : float or np.ndarray
+            Acceleration voltage in volts.
+        mass : float
+            Particle mass in atomic mass units (amu).
+        collinear : bool, optional
+            If True, assumes collinear geometry (default is True).
+        rest_to_lab : bool, optional
+            If True, calculates the Doppler factor from rest frame to laboratory frame (default is True).
+
+        Returns
+        -------
+        float or np.ndarray
+            The relativistic Doppler factor. If `collinear` and `rest_to_lab` are both True or both False,
+            returns the factor for transformation from rest to lab frame. Otherwise, returns the inverse factor.
+        """
         m = mass * self.mu
         beta = np.sqrt(1 - (m**2 * self.c**4)/(self.e*voltage + m*self.c**2)**2)
         factor = (1+beta)/np.sqrt(1-beta**2)
@@ -25,11 +44,43 @@ class CLSDataFrame:
         else:
             return 1/factor
 
-    def dopplershift(self,frequency, voltage, mass, collinear = True, rest_to_lab = True):
-        """Voltage in volts, mass in amu, works for frequency or wavenumber"""
+    def dopplershift(self, frequency: Union[float, np.ndarray], voltage: Union[float, np.ndarray], mass: float, collinear: bool = True, rest_to_lab: bool = True) -> Union[float, np.ndarray]:
+        """
+        Calculate the Doppler-shifted frequency for a particle given its acceleration voltage and mass.
+
+        Parameters
+        ----------
+        frequency : float or np.ndarray
+            The rest frame frequency in Hz or wavenumbers.
+        voltage : float or np.ndarray
+            Acceleration voltage in volts.
+        mass : float
+            Particle mass in atomic mass units (amu).
+        collinear : bool, optional
+            If True, assumes collinear geometry (default is True).
+        rest_to_lab : bool, optional
+            If True, calculates the shift from rest frame to laboratory frame (default is True).
+
+        Returns
+        -------
+        float or np.ndarray
+            The Doppler-shifted frequency.
+        """
         return frequency * self.dopplerfactor(voltage, mass, collinear, rest_to_lab)
     
-    def __init__(self,VAccDiv = 1000,VCoolDiv = 10000, VCoolOffset = 0):
+    def __init__(self, VAccDiv: int = 1000, VCoolDiv: int = 10000, VCoolOffset: float = 0) -> None:
+        """
+        Initialize the CLSDataFrame object with voltage division settings.
+
+        Parameters
+        ----------
+        VAccDiv : int, optional
+            LCR voltage monitor scaling factor (default is 1000).
+        VCoolDiv : int, optional
+            Cooler voltage monitor scaling factor (default is 10000).
+        VCoolOffset : float, optional
+            Cooler voltage offset in volts (default is 0).
+        """
         self.VCoolDiv = VCoolDiv
         self.VAccDiv = VAccDiv
         self.VCoolOffset = VCoolOffset
@@ -63,8 +114,13 @@ class CLSDataFrame:
         self.ComputationWLTime = 0
         self.ComputationBinTime = 0
     
-    def Info(self):
+    def Info(self) -> None:
+        """
+        Display comprehensive information about the loaded CLS data run.
 
+        This method prints detailed information including run parameters, voltage settings,
+        calibration data, scanning ranges, timing information, and computation times.
+        """
         print("\n")
         print("-----------------------------------------------------")
         print("     Run number  -> ",self.run_number)
@@ -100,7 +156,15 @@ class CLSDataFrame:
         print("----------------------------------------------------")
         print("\n")
 
-    def Info_to_csv(self,filename):
+    def Info_to_csv(self, filename: str) -> None:
+        """
+        Export run information to a CSV file.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the output CSV file where run information will be saved.
+        """
         output = {
                 'VCoolDiv':[self.VCoolDiv], 
                 'VAccDiv':[self.VAccDiv], 
@@ -129,8 +193,22 @@ class CLSDataFrame:
         df_out.to_csv(filename,index=False)
         pass
 
-    def Compute_Voltages(self,cooler_correction='pbp'):
+    def Compute_Voltages(self, cooler_correction: str = 'pbp') -> None:
+        """
+        Compute calibrated voltages using polynomial calibration and cooler voltage correction.
 
+        Parameters
+        ----------
+        cooler_correction : str, optional
+            Type of cooler voltage correction to apply. Options are:
+            - 'pbp': Point-by-point correction (default)
+            - 'mean': Use mean cooler voltage for all points
+
+        Raises
+        ------
+        AttributeError
+            If cooler_correction parameter is not 'pbp' or 'mean'.
+        """
         start = time.time()
         # self.Run["DV_cal"]=(self.Run["DV"]+(random()-0.5)*self.data.Step_Size)*self.Cal_m+self.Cal_q
         if self.Cal_order == 1:
@@ -152,7 +230,19 @@ class CLSDataFrame:
         self.Sorted = self.Run.compute()
         self.ComputationVTime = time.time()-start
         
-    def Compute_WL(self,Mass,ref=0,harmonic = 2):
+    def Compute_WL(self, Mass: float, ref: float = 0, harmonic: int = 2) -> None:
+        """
+        Compute wavelengths and frequencies using Doppler shift calculations.
+
+        Parameters
+        ----------
+        Mass : float
+            Particle mass in atomic mass units (amu).
+        ref : float, optional
+            Reference frequency offset in Hz (default is 0).
+        harmonic : int, optional
+            Harmonic number for the laser frequency (default is 2).
+        """
         start = time.time()
         self.Mass = Mass
         self.Reference = ref
@@ -168,15 +258,31 @@ class CLSDataFrame:
 
         return
 
-    def Shift_Ref(self,ref=0):
+    def Shift_Ref(self, ref: float = 0) -> None:
+        """
+        Shift the reference frequency for all frequency calculations.
+
+        Parameters
+        ----------
+        ref : float, optional
+            New reference frequency offset in Hz (default is 0).
+        """
         self.Reference = ref
         self.Run["F"]  = (self.WN_to_f*self.Run["WN"])-self.Reference
         self.Sorted = self.Run.compute()
 
-            
         return
 
-    def apply_filter(self,filter_window=0):
+    def apply_filter(self, filter_window: int = 0) -> None:
+        """
+        Apply a filter to remove timestamps with too many events.
+
+        Parameters
+        ----------
+        filter_window : int, optional
+            Maximum number of events allowed per timestamp. Events exceeding this
+            threshold will be filtered out. If 0, no filtering is applied (default is 0).
+        """
         tmp = self.Run
 
         if filter_window>0:
@@ -188,7 +294,17 @@ class CLSDataFrame:
         
         return
     
-    def Compute_ToF(self,V_gate = None, F_gate= None,PMT_gate = None):
+    def Compute_ToF(self, V_gate: Optional[List[float]] = None, PMT_gate: Optional[List[int]] = None) -> None:
+        """
+        Compute time-of-flight binned data with optional gating.
+
+        Parameters
+        ----------
+        V_gate : list of float, optional
+            Voltage gate range [min_voltage, max_voltage]. If None, no voltage gating is applied.
+        PMT_gate : list of int, optional
+            List of PMT channels to include (1-4). If None, all PMT channels are included.
+        """
         tmp = self.Run[['TOF','DV','TDC']]
         tmp["counts"] = 1
         if V_gate != None:  
@@ -206,7 +322,23 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Bins(self,TOF_gate = None, V_gate = None, F_gate= None, PMT_gate = None, bins=None):
+    def Compute_Bins(self, TOF_gate: Optional[List[float]] = None, V_gate: Optional[List[float]] = None, F_gate: Optional[List[float]] = None, PMT_gate: Optional[List[int]] = None, bins: Optional[int] = None) -> None:
+        """
+        Compute frequency-binned data with optional gating and custom binning.
+
+        Parameters
+        ----------
+        TOF_gate : list of float, optional
+            Time-of-flight gate range [min_tof, max_tof]. If None, no ToF gating is applied.
+        V_gate : list of float, optional
+            Voltage gate range [min_voltage, max_voltage]. If None, no voltage gating is applied.
+        F_gate : list of float, optional
+            Frequency gate range [min_frequency, max_frequency]. If None, no frequency gating is applied.
+        PMT_gate : list of int, optional
+            List of PMT channels to include (1-4). If None, all PMT channels are included.
+        bins : int, optional
+            Number of frequency bins to use. If None, automatically calculated from frequency step size.
+        """
         start = time.time()
         tmp = self.Run[['TS','F','TOF','DV','TDC','V']]
        
@@ -252,7 +384,19 @@ class CLSDataFrame:
 
         return
 
-    def Compute_Raw_Bins(self,TOF_gate = None, V_gate = None,PMT_gate = None): 
+    def Compute_Raw_Bins(self, TOF_gate: Optional[List[float]] = None, V_gate: Optional[List[float]] = None, PMT_gate: Optional[List[int]] = None) -> None:
+        """
+        Compute raw voltage-binned data with optional gating.
+
+        Parameters
+        ----------
+        TOF_gate : list of float, optional
+            Time-of-flight gate range [min_tof, max_tof]. If None, no ToF gating is applied.
+        V_gate : list of float, optional
+            Voltage gate range [min_voltage, max_voltage]. If None, no voltage gating is applied.
+        PMT_gate : list of int, optional
+            List of PMT channels to include (1-4). If None, all PMT channels are included.
+        """
         tmp = self.Run[['TOF','DV','TDC']]
         tmp["counts"] = 1
         if TOF_gate != None:
@@ -276,7 +420,19 @@ class CLSDataFrame:
 
         return
 
-    def Load_Run(self,filename,cal_order = 1,blocksize=25e6):
+    def Load_Run(self, filename: str, cal_order: int = 1, blocksize: float = 25e6) -> None:
+        """
+        Load CLS data run from an ASDF file and perform initial calibration.
+
+        Parameters
+        ----------
+        filename : str
+            Path to the ASDF file containing the CLS data run.
+        cal_order : int, optional
+            Order of polynomial calibration (1-3). Default is 1 (linear).
+        blocksize : float, optional
+            Block size for Dask DataFrame partitioning. Default is 25e6.
+        """
         start = time.time()
 
         self.blocksize = blocksize
@@ -319,8 +475,15 @@ class CLSDataFrame:
         self.LoadingTime = time.time()-start
         return
 
-    def Update_Cal(self, cal_order = 1):
+    def Update_Cal(self, cal_order: int = 1) -> None:
+        """
+        Update the calibration coefficients with a new polynomial order.
 
+        Parameters
+        ----------
+        cal_order : int, optional
+            Order of polynomial calibration (1-3). Default is 1 (linear).
+        """
         self.Cal_order = cal_order
 
         values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
@@ -335,7 +498,19 @@ class CLSDataFrame:
 
         return
 
-    def Update_V_divisions(self,VAccDiv = 1000,VCoolDiv = 10000, VcoolOffset = 0 ):
+    def Update_V_divisions(self, VAccDiv: int = 1000, VCoolDiv: int = 10000, VcoolOffset: float = 0) -> None:
+        """
+        Update voltage division settings for data processing.
+
+        Parameters
+        ----------
+        VAccDiv : int, optional
+            LCR voltage monitor scaling factor (default is 1000).
+        VCoolDiv : int, optional
+            Cooler voltage monitor scaling factor (default is 10000).
+        VcoolOffset : float, optional
+            Cooler voltage offset in volts (default is 0).
+        """
         self.VAccDiv = VAccDiv
         self.VCoolDiv = VCoolDiv
         self.VCoolOffset = VcoolOffset

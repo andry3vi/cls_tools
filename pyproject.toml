@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clstools"
+version = "0.4.2"
+description = "set of tool to load and sort IGISOL cls data"
+authors = [
+    {name = "Oiggart", email = "andrea.raggio@kuleuven.be"}
+]
+license = {text = "GPL-3.0"}
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "pandas",
+    "dask[complete]",
+    "asdf",
+    "numpy",
+    "matplotlib"
+]
+
+[project.urls]
+Homepage = "https://gitlab.jyu.fi/araggio/cls_tools"
+Repository = "https://gitlab.jyu.fi/araggio/cls_tools"
+
+[tool.setuptools.packages.find]
+include = ["clstools*"]
+
+[tool.setuptools.package-data]
+clstools = ["*.py"]

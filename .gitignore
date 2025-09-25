@@ -10,6 +10,7 @@ data/
 *.so
 *.swp
 *.~*
+uv.lock
 
 ## vscode conf files
 *code-workspace
