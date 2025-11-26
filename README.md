@@ -41,8 +41,6 @@ The core runtime dependencies (declared in `pyproject.toml`) are:
 - asdf
 - numpy
 
-These are installed automatically by `pip install .`.
-
 ## Quick usage
 
 A runnable example is provided in `example.py` which demonstrates a typical analysis flow and plotting.

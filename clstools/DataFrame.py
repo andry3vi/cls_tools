@@ -257,6 +257,36 @@ class CLSDataFrame:
         self.ComputationWLTime = time.time()-start
 
         return
+    def Frequency_ranges(self, Mass: float, ref: float = 0, harmonic: int = 2) -> tuple:
+        """
+        Return the voltage scanning ranges in doppler shifted frequency
+        
+        Parameters
+        ----------
+        Mass : float
+            Particle mass in atomic mass units (amu).
+        ref : float, optional
+            Reference frequency offset in Hz (default is 0).
+        harmonic : int, optional
+            Harmonic number for the laser frequency (default is 2).
+        
+        return: tuple
+            list of ranges in frequency value [MHz]
+        """
+        self.Mass = Mass
+        self.Reference = ref
+        self.Harmonic = harmonic
+
+        returnlist = []
+        for range in self.ScanningRanges:
+            maxV = self.Vcool_init*self.VCoolDiv+self.VCoolOffset - max(range)
+            minV = self.Vcool_init*self.VCoolDiv+self.VCoolOffset - min(range)
+            WN_min = self.dopplershift(harmonic*self.Laser_set,maxV,self.Mass,collinear=False,rest_to_lab=False)
+            WN_max = self.dopplershift(harmonic*self.Laser_set,minV,self.Mass,collinear=False,rest_to_lab=False)
+            returnlist.append([((self.WN_to_f*WN_min)-self.Reference)/1e6,((self.WN_to_f*WN_max)-self.Reference)/1e6])
+
+
+        return returnlist
 
     def Shift_Ref(self, ref: float = 0) -> None:
         """
