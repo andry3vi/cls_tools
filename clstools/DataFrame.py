@@ -136,6 +136,8 @@ class CLSDataFrame:
         print("     Laser Setpoint      [cm-1] -> ",self.Laser_set)
         print("     Calibration [p0 p1 p2 ...] -> ", [self.VAccDiv*i for i in self.Cal])
         print("     Calibration [e0 e1 e2 ...] -> ", [self.VAccDiv*i for i in self.Cal_err])
+        if self.Dropped_calibration_points is not None:
+            print("     Outlier calibration points found [V] -> ", self.Dropped_calibration_points)
         print("-------------------Scanning Ranges-------------------")
         print("     Voltage Step Size        [V] -> ",self.Step_Size)
         print("     Frequency Step Size    [MHz] -> ",self.Frequency_stepsize/1e6)
@@ -450,7 +452,7 @@ class CLSDataFrame:
 
         return
 
-    def Load_Run(self, filename: str, cal_order: int = 1, blocksize: float = 25e6) -> None:
+    def Load_Run(self, filename: str, cal_order: int = 1, blocksize: float = 25e6, filter_calibration: bool = True) -> None:
         """
         Load CLS data run from an ASDF file and perform initial calibration.
 
@@ -462,6 +464,8 @@ class CLSDataFrame:
             Order of polynomial calibration (1-3). Default is 1 (linear).
         blocksize : float, optional
             Block size for Dask DataFrame partitioning. Default is 25e6.
+        filter_calibration : bool, optional
+            Whether to filter calibration points based on residuals. Default is True.
         """
         start = time.time()
 
@@ -486,6 +490,7 @@ class CLSDataFrame:
 
             values, cov = np.polyfit(self.Cal_df['Set'], self.Cal_df['Read'], self.Cal_order,cov = True)  
             
+
             self.Cal = []
             self.Cal_err = []
             for i,v in enumerate(values):
@@ -493,6 +498,47 @@ class CLSDataFrame:
                 self.Cal_err.append(cov[i,i])
             self.Cal.reverse()
             self.Cal_err.reverse()
+
+            self.Cal_df['Fit'] = self.Cal_df['Set'].apply(lambda x: np.polyval(self.Cal[::-1], x))
+            self.Cal_df['Residual'] = self.Cal_df['Read'] - self.Cal_df['Fit']
+
+            if filter_calibration:
+                # if self.Cal_order == 1:
+                #     self.Run["DV_cal"] = (self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+                # elif self.Cal_order == 2:
+                #     self.Run["DV_cal"] = (self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+                # elif self.Cal_order == 3:
+                #     self.Run["DV_cal"] = (self.Cal[3]*self.Run["DV"]**3+self.Cal[2]*self.Run["DV"]**2+self.Run["DV"]*self.Cal[1]+self.Cal[0])*self.VAccDiv
+
+                std_residual = self.Cal_df['Residual'].std()
+                menan_residual = self.Cal_df['Residual'].mean()
+                self.Cal_df_filtered = self.Cal_df[np.abs(self.Cal_df['Residual']) <= 2 * std_residual]
+                indexes_to_drop = self.Cal_df.index.difference(self.Cal_df_filtered.index)
+                self.Dropped_calibration_points = None
+                if self.Cal_df_filtered.size != self.Cal_df.size:
+                    # self.Cal_df_filtered = self.Cal_df_filtered.reset_index(drop=True)
+                    print(f"Warning, calibration points outside 2 sigma of the residuals have been filtered out.")
+                    print(f"Mean of voltage calibration residuals: {menan_residual:.5f}, Standard deviation of residuals: {std_residual:.5f}")
+                    print(f"{len(indexes_to_drop)} point{('s' if len(indexes_to_drop) > 1 else '')} removed.")
+                    # print(f"indexes of removed points: {list(indexes_to_drop)}")
+                    self.Dropped_calibration_points = self.Cal_df.loc[indexes_to_drop, 'Set'].tolist()
+                    print(f"Removed point{('s' if len(indexes_to_drop) > 1 else '')} [V]: {self.Dropped_calibration_points}")
+                    values, cov = np.polyfit(self.Cal_df_filtered['Set'], self.Cal_df_filtered['Read'], self.Cal_order,cov = True)  
+
+
+
+                    self.Cal = []
+                    self.Cal_err = []
+                    for i,v in enumerate(values):
+                        self.Cal.append(v)
+                        self.Cal_err.append(cov[i,i])
+                    self.Cal.reverse()
+                    self.Cal_err.reverse()
+
+                    self.Cal_df = self.Cal_df_filtered
+                    self.Cal_df['Fit'] = self.Cal_df['Set'].apply(lambda x: np.polyval(self.Cal[::-1], x))
+                    self.Cal_df['Residual'] = self.Cal_df['Read'] - self.Cal_df['Fit']
+
 
             self.Run = dd.from_array(np.array(af.tree['raw']),columns=["TS","DV","Bunch","TDC","TOF","Vrfq"])
         
