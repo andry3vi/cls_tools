@@ -452,7 +452,7 @@ class CLSDataFrame:
 
         return
 
-    def Load_Run(self, filename: str, cal_order: int = 1, blocksize: float = 25e6, filter_calibration: bool = True) -> None:
+    def Load_Run(self, filename: str, cal_order: int = 1, blocksize: float = 25e6, filter_calibration: bool = True, ignore_intercept: bool = False) -> None:
         """
         Load CLS data run from an ASDF file and perform initial calibration.
 
@@ -466,6 +466,8 @@ class CLSDataFrame:
             Block size for Dask DataFrame partitioning. Default is 25e6.
         filter_calibration : bool, optional
             Whether to filter calibration points based on residuals. Default is True.
+        ignore_intercept : bool, optional
+            Whether to ignore the intercept in calibration fitting. Default is False.
         """
         start = time.time()
 
@@ -539,7 +541,12 @@ class CLSDataFrame:
                     self.Cal_df['Fit'] = self.Cal_df['Set'].apply(lambda x: np.polyval(self.Cal[::-1], x))
                     self.Cal_df['Residual'] = self.Cal_df['Read'] - self.Cal_df['Fit']
 
-
+            if ignore_intercept:
+                self.Cal[0] = 0
+                self.Cal_err[0] = 0
+                self.Cal_df['Fit'] = self.Cal_df['Set'].apply(lambda x: np.polyval(self.Cal[::-1], x))
+                self.Cal_df['Residual'] = self.Cal_df['Read'] - self.Cal_df['Fit']
+            
             self.Run = dd.from_array(np.array(af.tree['raw']),columns=["TS","DV","Bunch","TDC","TOF","Vrfq"])
         
         self.TSstart = self.Run['TS'].min().compute()
