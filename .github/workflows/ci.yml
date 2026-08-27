@@ -1,0 +1,70 @@
+# CI: runs on every push and every pull request against main.
+#
+# Budget: this must stay fast -- a PR should never be waiting long on it. If a
+# check grows slow, split it into its own job/workflow rather than letting it
+# block everything else.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A new push to the same branch cancels the run in flight; main is never
+  # cancelled, so it stays demonstrably green.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # ruff is run through `uvx` at a pinned version rather than added to the dev
+  # dependency group, so linting costs nothing in uv.lock. Bumping the tool
+  # version is an explicit edit to this file.
+  RUFF_VERSION: "0.16.3"
+
+jobs:
+  lint:
+    name: ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: ruff check
+        run: uvx ruff@${{ env.RUFF_VERSION }} check --output-format=github .
+
+      - name: ruff format --check
+        run: uvx ruff@${{ env.RUFF_VERSION }} format --check --diff .
+
+  test:
+    name: pytest on ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # .python-version is 3.13 and requires-python is >=3.11.
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync the environment
+        # --frozen: uv.lock is authoritative. A dependency change that was not
+        # locked fails here rather than silently resolving to something else.
+        run: uv sync --frozen --group dev
+
+      - name: pytest
+        run: uv run --frozen pytest -ra --durations=10
