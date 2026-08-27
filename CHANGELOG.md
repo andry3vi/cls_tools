@@ -6,6 +6,8 @@ All notable changes to `clstools` are documented here. Format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-27
+
 ### Added
 
 - Test suite (`tests/`) covering the Doppler physics, the calibration fit and outlier filtering,
@@ -18,6 +20,8 @@ All notable changes to `clstools` are documented here. Format follows
 - `uv.lock`, now tracked, so CI and local installs are reproducible (`uv sync --frozen`).
 - mypy (non-strict, `clstools/` only; see `[tool.mypy]` in `pyproject.toml`), catching two real
   latent bugs (below) along the way.
+- `LICENSE` — GPL-3.0, verbatim from gnu.org. `pyproject.toml` had declared this license since
+  before this release, but no `LICENSE` file existed to back it up.
 
 ### Changed
 
@@ -31,6 +35,8 @@ All notable changes to `clstools` are documented here. Format follows
   `float` explicitly (`dopplershift` is typed to admit an `ndarray`, though these call sites only
   ever pass scalars). No behavior change for scalar inputs, which is the only way these are
   currently called.
+- `pyproject.toml`'s `Homepage`/`Repository` URLs fixed (were pointing at a defunct `gitlab.jyu.fi`
+  mirror); added an `Issues` link.
 
 ### Known issues
 

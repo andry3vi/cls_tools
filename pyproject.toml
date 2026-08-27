@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clstools"
-version = "0.4.2"
+version = "0.5.0"
 description = "set of tool to load and sort IGISOL cls data"
 authors = [
     {name = "Oiggart", email = "andrea.raggio@kuleuven.be"}
