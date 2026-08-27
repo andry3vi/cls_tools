@@ -10,7 +10,7 @@ data/
 *.so
 *.swp
 *.~*
-test*.py
+/test*.py
 ## vscode conf files
 *code-workspace
 .claude
