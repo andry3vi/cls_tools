@@ -40,8 +40,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://gitlab.jyu.fi/araggio/cls_tools"
-Repository = "https://gitlab.jyu.fi/araggio/cls_tools"
+Homepage = "https://github.com/andry3vi/cls_tools"
+Repository = "https://github.com/andry3vi/cls_tools"
+Issues = "https://github.com/andry3vi/cls_tools/issues"
 
 [tool.setuptools.packages.find]
 include = ["clstools*"]
