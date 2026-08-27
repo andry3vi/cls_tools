@@ -11,18 +11,16 @@ authors = [
 ]
 license = {text = "GPL-3.0"}
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
@@ -31,6 +29,14 @@ dependencies = [
     "asdf",
     "numpy",
     "matplotlib"
+]
+
+[dependency-groups]
+# Deliberately just pytest. ruff is run through `uvx` at a version pinned in
+# .github/workflows/ci.yml, so the lockfile stays small and a tool upgrade is
+# an explicit edit to a CI file.
+dev = [
+    "pytest>=8.0",
 ]
 
 [project.urls]
@@ -42,3 +48,37 @@ include = ["clstools*"]
 
 [tool.setuptools.package-data]
 clstools = ["*.py"]
+
+# ===========================================================================
+# Tooling. Enforced by .github/workflows/ci.yml.
+# ===========================================================================
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["clstools", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort -- deterministic import order
+    "UP",       # pyupgrade
+    "B",        # bugbear
+    "SIM",      # simplify
+    "NPY",      # numpy-specific
+    "RUF",      # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["clstools"]
