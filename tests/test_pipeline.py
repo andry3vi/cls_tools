@@ -115,7 +115,11 @@ def test_compute_wl_frequency_stepsize_matches_manual_calculation(frame):
         2 * frame.Laser_set, vcool_v, frame.Mass, collinear=False, rest_to_lab=False
     )
     wn_b = frame.dopplershift(
-        2 * frame.Laser_set, vcool_v + frame.Step_Size, frame.Mass, collinear=False, rest_to_lab=False
+        2 * frame.Laser_set,
+        vcool_v + frame.Step_Size,
+        frame.Mass,
+        collinear=False,
+        rest_to_lab=False,
     )
     expected_stepsize = abs(wn_a - wn_b) * frame.WN_to_f
     assert frame.Frequency_stepsize == pytest.approx(expected_stepsize)
@@ -148,8 +152,12 @@ def test_frequency_ranges_matches_manual_dopplershift(frame):
     base_v = frame.Vcool_init * frame.VCoolDiv + frame.VCoolOffset
     max_v = base_v - 100.0
     min_v = base_v - (-100.0)
-    wn_min = frame.dopplershift(2 * frame.Laser_set, max_v, 133.0, collinear=False, rest_to_lab=False)
-    wn_max = frame.dopplershift(2 * frame.Laser_set, min_v, 133.0, collinear=False, rest_to_lab=False)
+    wn_min = frame.dopplershift(
+        2 * frame.Laser_set, max_v, 133.0, collinear=False, rest_to_lab=False
+    )
+    wn_max = frame.dopplershift(
+        2 * frame.Laser_set, min_v, 133.0, collinear=False, rest_to_lab=False
+    )
     assert f_min == pytest.approx(frame.WN_to_f * wn_min / 1e6)
     assert f_max == pytest.approx(frame.WN_to_f * wn_max / 1e6)
 
