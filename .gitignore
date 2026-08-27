@@ -10,10 +10,11 @@ data/
 *.so
 *.swp
 *.~*
-uv.lock
-
+test*.py
 ## vscode conf files
 *code-workspace
+.claude
+CLAUDE.md
 
 ## Core latex/pdflatex auxiliary files:
 *.aux
