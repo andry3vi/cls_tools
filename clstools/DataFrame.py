@@ -48,10 +48,13 @@ class CLSDataFrame:
         m = mass * self.mu
         beta = np.sqrt(1 - (m**2 * self.c**4) / (self.e * voltage + m * self.c**2) ** 2)
         factor = (1 + beta) / np.sqrt(1 - beta**2)
+        # numpy's stubs don't preserve the float|ndarray union through this arithmetic, so
+        # both branches type as Any -- the float|ndarray return annotation is still accurate
+        # at runtime (voltage's type determines it), mypy just can't verify it here.
         if (collinear and rest_to_lab) or (not collinear and not rest_to_lab):
-            return factor
+            return factor  # type: ignore[no-any-return]
         else:
-            return 1 / factor
+            return 1 / factor  # type: ignore[no-any-return]
 
     def dopplershift(
         self,
@@ -101,35 +104,40 @@ class CLSDataFrame:
         self.VCoolDiv = VCoolDiv
         self.VAccDiv = VAccDiv
         self.VCoolOffset = VCoolOffset
-        self.Vcool_init = None
-        self.Laser_set = None
-        self.Reference = None
-        self.Step_Size = None
-        self.ScanningRanges = None
-        self.Cal_df = None
-        self.Cal = []
-        self.Cal_err = []
-        self.Cal_order = None
-        self.Run = None
-        self.Binned = None
-        self.ToF_binned = None
-        self.Raw_binned = None
-        self.Size = None
-        self.Sorted = None
-        self.Bins = None
-        self.DAQTStime = None
-        self.TSstart = None
-        self.TSstop = None
-        self.Scans = None
+        # These are typed as the value Load_Run (or Compute_Voltages/Compute_WL) actually
+        # populates them with, not Optional -- the class has no call-order guard (see
+        # CLAUDE.md), so `None` here is a placeholder the rest of the pipeline is never
+        # meant to observe, and typing it Optional would just push a `is not None` check
+        # into every method instead of catching a genuine call-order bug at its use site.
+        self.Vcool_init: float = None  # type: ignore[assignment]
+        self.Laser_set: float = None  # type: ignore[assignment]
+        self.Reference: float = None  # type: ignore[assignment]
+        self.Step_Size: float = None  # type: ignore[assignment]
+        self.ScanningRanges: list[list[float]] = None  # type: ignore[assignment]
+        # (pandas ships no stubs -- see the mypy override in pyproject.toml -- so
+        # pd.DataFrame itself resolves to Any and these four don't need an ignore.)
+        self.Cal_df: pd.DataFrame = None
+        self.Cal: list[float] = []
+        self.Cal_err: list[float] = []
+        self.Cal_order: int = None  # type: ignore[assignment]
+        self.Run: dd.DataFrame = None  # type: ignore[assignment]
+        self.Binned: pd.DataFrame = None
+        self.ToF_binned: pd.DataFrame = None
+        self.Raw_binned: pd.DataFrame = None
+        self.Size: int = None  # type: ignore[assignment]
+        self.Sorted: pd.DataFrame = None
+        self.DAQTStime: float = None  # type: ignore[assignment]
+        self.TSstart: float = None  # type: ignore[assignment]
+        self.TSstop: float = None  # type: ignore[assignment]
         self.Harmonic = 2
-        self.Dwell_Time = None
-        self.Experiment = None
-        self.Date = None
-        self.Frequency_stepsize = None
-        self.LoadingTime = 0
-        self.ComputationVTime = 0
-        self.ComputationWLTime = 0
-        self.ComputationBinTime = 0
+        self.Dwell_Time: float = None  # type: ignore[assignment]
+        self.Experiment: str = None  # type: ignore[assignment]
+        self.Date: str = None  # type: ignore[assignment]
+        self.Frequency_stepsize: float = None  # type: ignore[assignment]
+        self.LoadingTime = 0.0
+        self.ComputationVTime = 0.0
+        self.ComputationWLTime = 0.0
+        self.ComputationBinTime = 0.0
 
     def Info(self) -> None:
         """
@@ -280,20 +288,22 @@ class CLSDataFrame:
         self.Mass = Mass
         self.Reference = ref
         self.Harmonic = harmonic
-        self.Frequency_stepsize = np.abs(
-            self.dopplershift(
-                harmonic * self.Laser_set,
-                self.Vcool_init * self.VCoolDiv,
-                self.Mass,
-                collinear=False,
-                rest_to_lab=False,
-            )
-            - self.dopplershift(
-                harmonic * self.Laser_set,
-                self.Vcool_init * self.VCoolDiv + self.Step_Size,
-                self.Mass,
-                collinear=False,
-                rest_to_lab=False,
+        self.Frequency_stepsize = float(
+            np.abs(
+                self.dopplershift(
+                    harmonic * self.Laser_set,
+                    self.Vcool_init * self.VCoolDiv,
+                    self.Mass,
+                    collinear=False,
+                    rest_to_lab=False,
+                )
+                - self.dopplershift(
+                    harmonic * self.Laser_set,
+                    self.Vcool_init * self.VCoolDiv + self.Step_Size,
+                    self.Mass,
+                    collinear=False,
+                    rest_to_lab=False,
+                )
             )
         )
         self.Frequency_stepsize = self.Frequency_stepsize * self.WN_to_f
@@ -307,7 +317,7 @@ class CLSDataFrame:
 
         return
 
-    def Frequency_ranges(self, Mass: float, ref: float = 0, harmonic: int = 2) -> tuple:
+    def Frequency_ranges(self, Mass: float, ref: float = 0, harmonic: int = 2) -> list[list[float]]:
         """
         Return the voltage scanning ranges in doppler shifted frequency
 
@@ -320,14 +330,14 @@ class CLSDataFrame:
         harmonic : int, optional
             Harmonic number for the laser frequency (default is 2).
 
-        return: tuple
+        return: list of [float, float]
             list of ranges in frequency value [MHz]
         """
         self.Mass = Mass
         self.Reference = ref
         self.Harmonic = harmonic
 
-        returnlist = []
+        returnlist: list[list[float]] = []
         for range in self.ScanningRanges:
             maxV = self.Vcool_init * self.VCoolDiv + self.VCoolOffset - max(range)
             minV = self.Vcool_init * self.VCoolDiv + self.VCoolOffset - min(range)
@@ -339,8 +349,8 @@ class CLSDataFrame:
             )
             returnlist.append(
                 [
-                    ((self.WN_to_f * WN_min) - self.Reference) / 1e6,
-                    ((self.WN_to_f * WN_max) - self.Reference) / 1e6,
+                    float((self.WN_to_f * WN_min) - self.Reference) / 1e6,
+                    float((self.WN_to_f * WN_max) - self.Reference) / 1e6,
                 ]
             )
 

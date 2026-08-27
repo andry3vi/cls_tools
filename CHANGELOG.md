@@ -11,10 +11,13 @@ All notable changes to `clstools` are documented here. Format follows
 - Test suite (`tests/`) covering the Doppler physics, the calibration fit and outlier filtering,
   and the gating/binning pipeline, using synthetic ASDF fixtures and directly-constructed Dask
   frames (no real run data lives in this repo).
-- GitHub Actions CI (`.github/workflows/ci.yml`): ruff lint/format and pytest across Python
-  3.11–3.13 on every push and pull request.
+- GitHub Actions CI (`.github/workflows/ci.yml`): ruff lint/format, mypy, and pytest across
+  Python 3.11–3.13 on every push and pull request. Branch protection on `main` requires all of
+  them before merge.
 - `CONTRIBUTING.md` with the branching/commit/PR conventions.
 - `uv.lock`, now tracked, so CI and local installs are reproducible (`uv sync --frozen`).
+- mypy (non-strict, `clstools/` only; see `[tool.mypy]` in `pyproject.toml`), catching two real
+  latent bugs (below) along the way.
 
 ### Changed
 
@@ -22,6 +25,12 @@ All notable changes to `clstools` are documented here. Format follows
   updated to match.
 - `apply_filter` now copies the computed frame (`tmp.compute().copy()`) before mutating it,
   avoiding a pandas `SettingWithCopyWarning` surfaced by the new tests. No behavior change.
+- `Frequency_ranges`'s declared return type was `tuple`; it always returned a `list`. Fixed the
+  annotation to match the actual (unchanged) behavior.
+- `Compute_WL`'s `Frequency_stepsize` and `Frequency_ranges`'s returned bounds are now coerced to
+  `float` explicitly (`dopplershift` is typed to admit an `ndarray`, though these call sites only
+  ever pass scalars). No behavior change for scalar inputs, which is the only way these are
+  currently called.
 
 ### Known issues
 

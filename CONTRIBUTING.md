@@ -38,10 +38,12 @@ Keep commits small and individually green; don't mix a refactor with a behavior 
 ```powershell
 uvx ruff@0.16.3 check .
 uvx ruff@0.16.3 format --check .
+uv run --with mypy==2.3.1 mypy clstools
 uv run --group dev pytest -q -ra
 ```
 
-All three run in CI (`.github/workflows/ci.yml`) on every push and PR, and must pass before merge.
+All four run in CI (`.github/workflows/ci.yml`) on every push and PR, and branch protection on
+`main` requires them to pass before merge.
 
 Describe in the PR: what changed, whether any physical result moved, and what you ran to check
 it. A change to the Doppler math, voltage calibration, or gating logic should come with a new or
