@@ -24,7 +24,7 @@ Or build a wheel and install it:
 ```powershell
 # optional: create a wheel
 python -m build
-pip install dist\clstools-0.4.2-py3-none-any.whl
+pip install dist\clstools-0.5.0-py3-none-any.whl
 ```
 If you use `uv` you can run the example directly without creating a venv or installing:
 
@@ -47,6 +47,6 @@ A runnable example is provided in `example.py` which demonstrates a typical anal
 
 ## License
 
-GPL-3.0 — see `pyproject.toml` for metadata.
+GPL-3.0 — see `LICENSE`.
 
 
