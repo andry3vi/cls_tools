@@ -21,10 +21,11 @@ permissions:
   contents: read
 
 env:
-  # ruff is run through `uvx` at a pinned version rather than added to the dev
-  # dependency group, so linting costs nothing in uv.lock. Bumping the tool
-  # version is an explicit edit to this file.
+  # ruff and mypy are run at a pinned version rather than added to the dev
+  # dependency group, so linting/type-checking costs nothing in uv.lock.
+  # Bumping either version is an explicit edit to this file.
   RUFF_VERSION: "0.16.3"
+  MYPY_VERSION: "2.3.1"
 
 jobs:
   lint:
@@ -43,6 +44,31 @@ jobs:
 
       - name: ruff format --check
         run: uvx ruff@${{ env.RUFF_VERSION }} format --check --diff .
+
+  types:
+    name: mypy (clstools)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        # .python-version pins the interpreter; requires-python is >=3.11.
+        run: uv python install
+
+      - name: Sync the environment
+        run: uv sync --frozen
+
+      # mypy needs the project's own dependencies importable to see numpy
+      # (dask ships a py.typed marker; pandas/asdf are ignore_missing_imports
+      # in pyproject.toml, see [[tool.mypy.overrides]]), so it runs inside the
+      # synced environment rather than standalone via uvx.
+      - name: mypy
+        run: uv run --frozen --with mypy==${{ env.MYPY_VERSION }} mypy clstools
 
   test:
     name: pytest on ${{ matrix.python-version }}
