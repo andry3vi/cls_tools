@@ -82,3 +82,21 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["clstools"]
+
+# ---------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.11"
+files = ["clstools"]
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+no_implicit_optional = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+# Neither ships stubs or a py.typed marker; asdf's tree access and most of
+# pandas's API surface resolve to Any either way, so ignoring here is a no-op
+# for how precisely they can be checked, not a suppressed real finding.
+module = ["asdf.*", "pandas.*"]
+ignore_missing_imports = true
