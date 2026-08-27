@@ -1,1 +1,1 @@
-from .DataFrame import CLSDataFrame
+from .DataFrame import CLSDataFrame as CLSDataFrame
