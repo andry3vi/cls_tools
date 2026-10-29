@@ -6,6 +6,42 @@ All notable changes to `clstools` are documented here. Format follows
 
 ## [Unreleased]
 
+Default results are unchanged: everything below is opt-in except the warnings, and the
+single-point calibration fallback for runs that used to crash. With `Use_Scan_Calibration`, the Bi
+offline Cl(²D₅/₂) result moves by +131.5 kHz from the per-run line (the nonlinearity it misses);
+on six Bi runs the new path reproduces the Bi analysis (offsets to 10 µV, same lags and rejections,
+per-event V within 5 µV from the table's rounding).
+
+### Added
+
+- `clstools.calibration`: scan-voltage tables (`ScanCalibration`, format documented in the
+  module) with the bench table of 24 Oct 2026 packaged in `clstools/data/`, `available_tables`,
+  `load_table`; `analyse_readback` (readback lag, unsettled readings, noise, gain and offset
+  checks); `CalibrationWarning`.
+- `CLSDataFrame.Use_Scan_Calibration`: table shape + per-run offset from the readback, with a
+  warning when the run predates the table, and for set voltages off the table's grid or range.
+- `CLSDataFrame.Set_Scan_Voltage_Map`: hook for any set → applied scan-voltage map (the one the Bi
+  analysis carried in a local copy of clstools); used by `Compute_Voltages` and
+  `Frequency_ranges`.
+- `Compute_Voltages(cooler_correction="smooth")`: faulty cooler readings dropped, 5 s centred
+  moving average, interpolated to each event (`Vrfq_smooth` column); `cooler_window_s`,
+  `cooler_max_dev_v`.
+- `Load_Run` always checks the calibration readback (`Readback_check`) and warns about faults in
+  the file; `filter_calibration="robust"` corrects them before the polynomial fit. `Cal_raw`
+  keeps the calibration points as recorded.
+- `Info`/`Info_to_csv` report the scan table, run offset, readback diagnostics and cooler faults.
+
+### Fixed
+
+- A calibration with too few points no longer raises (`LinAlgError: Singular matrix`, 64 runs of
+  the August 2026 archive sweep): `Cal_err` is NaN, or with fewer points than coefficients the
+  nominal calibration (applied = set voltage) is used, with a warning.
+- A `CalSet`/`CalReadback` length mismatch no longer raises; the common pairs are used, with a
+  warning. Non-finite calibration values are ignored instead of producing NaN coefficients.
+- `Dropped_calibration_points` is initialised, so `Info()` no longer fails after
+  `filter_calibration=False`.
+- `Load_Run` clears a scan map installed for a previously loaded run.
+
 ## [0.5.0] - 2026-08-27
 
 ### Added
