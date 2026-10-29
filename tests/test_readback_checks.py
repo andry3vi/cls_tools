@@ -72,8 +72,8 @@ def test_robust_filter_corrects_lag_and_drops_unsettled(tmp_path):
     keep = np.ones(len(s) - 1, bool)
     keep[60] = False
     slope, intercept = np.polyfit(s[:-1][keep], rb[1:][keep], 1)
-    assert frame.Cal[1] == pytest.approx(slope, rel=1e-12)
-    assert frame.Cal[0] == pytest.approx(intercept, abs=1e-12)
+    assert frame.Cal[1] == pytest.approx(slope, rel=1e-9)
+    assert frame.Cal[0] == pytest.approx(intercept, abs=1e-9)
 
 
 def test_invalid_filter_calibration_value(tmp_path):

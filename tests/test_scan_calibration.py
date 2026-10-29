@@ -246,14 +246,24 @@ def test_too_few_points(table):
     assert np.isnan(fit.offset_v) and fit.n_points == 0
 
 
-def test_polynomial_readback_check_finds_lag_without_a_table():
+def test_without_the_table_a_lag_looks_like_a_one_step_offset(table):
+    # Why Load_Run checks against the table: on an up-sweep, reading i = applied(set[i] - 1 V), so
+    # a straight line absorbs the lag into its offset and only the jumps between ranges stand out.
+    # The table's DAC nonlinearity does not shift with the lag, which is what makes it visible.
     s = scan((0, 100), (300, 400))
+    rb = np.random.default_rng(2).normal(0.0, 0.05, len(s))
     applied = 0.9989 * s - 0.9
-    rb = np.r_[applied[0], applied[:-1]]
-    fit = analyse_readback(s, rb, order=1)
+    fit = analyse_readback(s, rb + np.r_[applied[0], applied[:-1]], order=1)
+    assert fit.lag_steps == 0
+    assert fit.offset_v == pytest.approx(-0.9 - 0.9989, abs=0.05)
+    # the first reading (no earlier step to lag behind) and the one after the jump stand out
+    assert fit.rejected_set_v == [0.0, 300.0]
+    assert fit.gain_ppm == pytest.approx(-1100, abs=100)
+
+    applied = table.shape(s) - 0.9
+    fit = table.fit_run_offset(s, rb + np.r_[applied[0], applied[:-1]])
     assert fit.lag_steps == 1
-    assert fit.offset_v == pytest.approx(-0.9, abs=1e-9)
-    assert fit.gain_ppm == pytest.approx(-1100, abs=1e-3)
+    assert fit.offset_v == pytest.approx(-0.9, abs=0.05)
 
 
 # --------------------------------------------------------------------- CLSDataFrame integration
