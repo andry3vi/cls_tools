@@ -30,6 +30,14 @@ per-event V within 5 µV from the table's rounding).
   the file; `filter_calibration="robust"` corrects them before the polynomial fit. `Cal_raw`
   keeps the calibration points as recorded.
 - `Info`/`Info_to_csv` report the scan table, run offset, readback diagnostics and cooler faults.
+- `clstools.counting`: PMT counting check (`check_counting`, `CountingCheck`, `CountingWarning`).
+  Per PMT it gives the Fano factor of the counts per trigger, the afterpulse-burst fraction and
+  the Fano factor a dead time would give. `Load_Run` runs it unless `counting_check=False`, and
+  warns when a PMT is not Poisson. `Check_Counting` reruns it, and `Info`/`Info_to_csv` report it.
+  On the Bi runs it flags PMT 4: Fano 2.2–3.1, against 1.1–1.2 for PMT 3.
+- `CLSDataFrame.apply_dead_time`: artificial extending dead time per PMT (default 5 µs, or
+  `{channel: us}`), the Bi analysis's afterpulse cut. `apply_filter` now also reruns the
+  counting check.
 
 ### Fixed
 

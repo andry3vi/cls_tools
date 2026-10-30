@@ -78,6 +78,45 @@ more than 1 %. This changes no numbers; `filter_calibration="robust"` corrects t
 unsettled readings before the polynomial fit. To turn the warnings into errors:
 `warnings.simplefilter("error", cls.CalibrationWarning)`.
 
+## PMT counting statistics
+
+`Load_Run` also checks that each PMT counts like a Poisson process. A healthy PMT has a Fano factor of
+1 for its counts per trigger (variance / mean, taken per scan step and pooled). In the Bi offline runs
+(October 2026) it was 1.2–3: the PMTs fire bursts of afterpulses a few µs apart, and PMT 4 was several
+times worse than PMT 3. The extra scatter doubled the fits' χ²_red. When a Fano factor is off,
+`Load_Run` raises a `CountingWarning` that names the PMT and the likely cause, and `Info()` prints the
+indicators:
+
+```text
+--------------------PMT counting---------------------
+     Trigger period          [us] ->  1000
+     PMT   events  rate[cps]   Fano          bursts<5us (exp.)  Fano(5us dead)
+       3    69117      154.4    1.23 +- 0.01         1.8 % (0.1)    1.03
+       4    60043      134.1    2.49 +- 0.01         7.7 % (0.1)    1.07
+     sum                          1.82 +- 0.00   correlated excess -0.00
+```
+
+- **bursts**: the fraction of a PMT's events that come less than 5 µs after its previous event,
+  against what uncorrelated counting with the run's ToF profile gives.
+- **Fano(5us dead)**: the Fano factor that `apply_dead_time` would give.
+- **correlated excess**: how much more the summed counts fluctuate than the single PMTs. Beam or
+  laser intensity changes and noise bursts on all channels show up here; `apply_filter` removes the
+  noise bursts.
+
+The artificial dead time is opt-in:
+
+```python
+data.Load_Run(path)
+data.apply_dead_time(5.0)  # or {4: 5.0} for one PMT only
+data.Compute_Voltages(cooler_correction="smooth")
+```
+
+An event is dropped when the previous event of the same PMT is closer than the dead time. In the Bi
+runs 5 µs removed 2–5 % of the events and brought the Fano factor to about 1. With bunched beams, real
+photons also arrive close together, so check the Fano(5us dead) column before using it. Runs with one
+trigger per scan step (`BunchesPerChannel` 1) get no Fano factor. `Load_Run(..., counting_check=False)`
+skips the check, which takes about 1 s per million events; `Check_Counting()` runs it at any time.
+
 ## License
 
 GPL-3.0 — see `LICENSE`.

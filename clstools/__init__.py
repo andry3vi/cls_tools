@@ -4,4 +4,8 @@ from .calibration import ScanCalibration as ScanCalibration
 from .calibration import analyse_readback as analyse_readback
 from .calibration import available_tables as available_tables
 from .calibration import load_table as load_table
+from .counting import CountingCheck as CountingCheck
+from .counting import CountingWarning as CountingWarning
+from .counting import PMTCounting as PMTCounting
+from .counting import check_counting as check_counting
 from .DataFrame import CLSDataFrame as CLSDataFrame

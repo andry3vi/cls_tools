@@ -22,6 +22,14 @@ from .calibration import (
     smooth_readings,
     warn,
 )
+from .counting import (
+    BURST_WINDOW_US,
+    CountingCheck,
+    check_counting,
+    dead_time_keep,
+    trigger_period_us,
+)
+from .counting import warn as warn_counting
 
 
 class CLSDataFrame:
@@ -149,6 +157,12 @@ class CLSDataFrame:
         self.Readback_fit: ReadbackFit | None = None
         self.Cooler_correction: str | None = None
         self.Cooler_faulty_readings = 0
+        # PMT counting statistics (clstools.counting): as loaded, and after the last filter.
+        self.Trigger_period_us: float | None = None
+        self.Counting_check_loaded: CountingCheck | None = None
+        self.Counting_check: CountingCheck | None = None
+        self.Dead_time_us: float | dict[int, float] | None = None
+        self.Dead_time_removed: dict[int, float] = {}
         self.Run: dd.DataFrame = None  # type: ignore[assignment]
         self.Binned: pd.DataFrame = None
         self.ToF_binned: pd.DataFrame = None
@@ -218,6 +232,8 @@ class CLSDataFrame:
         if self.Cooler_correction is not None:
             print("     Cooler correction       -> ", self.Cooler_correction)
             print("     Faulty cooler readings  -> ", self.Cooler_faulty_readings)
+        if self.Counting_check is not None:
+            self._print_counting()
         print("-------------------Scanning Ranges-------------------")
         print("     Voltage Step Size        [V] -> ", self.Step_Size)
         print("     Frequency Step Size    [MHz] -> ", self.Frequency_stepsize / 1e6)
@@ -284,6 +300,17 @@ class CLSDataFrame:
             output["Cooler_correction"] = [self.Cooler_correction]
             output["Cooler_faulty_readings"] = [self.Cooler_faulty_readings]
 
+        if self.Counting_check is not None:
+            check = self.Counting_check
+            output["Trigger_period_us"] = [check.period_us]
+            output["Fano_all"] = [check.fano_all]
+            output["Fano_correlated_excess"] = [check.correlated_excess]
+            for c, pmt in check.pmts.items():
+                output[f"Events_pmt{c}"] = [pmt.events]
+                output[f"Fano_pmt{c}"] = [pmt.fano]
+                output[f"Burst_fraction_pmt{c}"] = [pmt.burst_fraction]
+                output[f"Fano_dead_pmt{c}"] = [pmt.fano_dead]
+            output["Dead_time_us"] = [self.Dead_time_us]
         df_out = pd.DataFrame(output)
         df_out.to_csv(filename, index=False)
         pass
@@ -649,8 +676,129 @@ class CLSDataFrame:
             )
             tmp = tmp[tmp["filter"]]
             self.Run = dd.from_pandas(tmp, npartitions=6)
+            if self.Counting_check is not None:
+                self.Check_Counting()
 
         return
+
+    def apply_dead_time(self, dead_time_us: float | dict[int, float] = BURST_WINDOW_US) -> None:
+        """
+        Apply an artificial dead time per PMT, against afterpulse bursts.
+
+        An event is dropped when the previous event of the same PMT (TDC channel), kept or not,
+        is closer than the dead time (extending dead time); event time = Bunch * trigger period
+        + TOF. Call it after Load_Run and before binning; Sorted is refreshed if it exists. The
+        fraction of events removed per PMT is stored in Dead_time_removed, and the counting
+        statistics are checked again (Counting_check).
+
+        In the Bi offline runs (October 2026) 5 us removed 2-5 % of the events and brought the
+        Fano factor of the counts from 1.2-2.5 to ~1.0, the fit chi2_red from ~2 to 1.09. With
+        bunched beams real photons come close together too: check Fano(dead) in Info first.
+
+        Parameters
+        ----------
+        dead_time_us : float or dict, optional
+            Dead time in us for every PMT (default 5), or {channel: us}; channels not listed keep
+            all their events.
+        """
+        period = self._trigger_period()
+        tmp = self.Run.compute()
+        tdc = tmp["TDC"].to_numpy()
+        keep = dead_time_keep(
+            tmp["Bunch"].to_numpy(), tdc, tmp["TOF"].to_numpy(), period, dead_time_us
+        )
+        self.Dead_time_removed = {int(c): float(1 - keep[tdc == c].mean()) for c in np.unique(tdc)}
+        self.Dead_time_us = dead_time_us
+        tmp = tmp[keep]
+        self.Run = dd.from_pandas(tmp, npartitions=max(1, self.Run.npartitions))
+        if self.Sorted is not None:
+            self.Sorted = tmp
+        self.Check_Counting()
+
+        return
+
+    def Check_Counting(self) -> CountingCheck:
+        """
+        Check the PMT counting statistics of the current events (after any filter).
+
+        Per PMT: the Fano factor (variance / mean) of the counts per trigger, per scan step and
+        pooled, which is 1 for Poisson counting; the fraction of events less than 5 us after
+        the previous event of the same PMT (afterpulse bursts) and its uncorrelated expectation;
+        and the Fano factor after a 5 us dead time. For the summed counts, how much more they
+        fluctuate than the single PMTs (beam or laser intensity, noise bursts on all channels).
+        A CountingWarning is raised when a Fano factor is off; see clstools.counting.
+
+        Returns
+        -------
+        CountingCheck
+            Also stored in Counting_check and shown by Info.
+        """
+        tmp = self.Run[["DV", "Bunch", "TDC", "TOF"]].compute()
+        return self._check_counting(
+            tmp["DV"].to_numpy(),
+            tmp["Bunch"].to_numpy(),
+            tmp["TDC"].to_numpy(),
+            tmp["TOF"].to_numpy(),
+        )
+
+    def _trigger_period(self) -> float:
+        if self.Trigger_period_us is None:
+            tmp = self.Run[["TS", "Bunch", "TOF"]].compute()
+            self.Trigger_period_us = trigger_period_us(
+                tmp["TS"].to_numpy(), tmp["Bunch"].to_numpy(), tmp["TOF"].to_numpy()
+            )
+        return self.Trigger_period_us
+
+    def _check_counting(
+        self, dv: np.ndarray, bunch: np.ndarray, tdc: np.ndarray, tof: np.ndarray
+    ) -> CountingCheck:
+        self.Counting_check = check_counting(dv, bunch, tdc, tof, self._trigger_period())
+        for issue in self.Counting_check.issues:
+            warn_counting(f"run {self.run_number}: {issue.message}")
+        return self.Counting_check
+
+    def _print_counting(self) -> None:
+        check = self.Counting_check
+        assert check is not None
+
+        def num(x: float, fmt: str) -> str:
+            return "n/a" if np.isnan(x) else format(x, fmt)
+
+        w = f"{BURST_WINDOW_US:g}us"
+        print("--------------------PMT counting---------------------")
+        print("     Trigger period          [us] -> ", f"{check.period_us:g}")
+        print(f"     PMT   events  rate[cps]   Fano          bursts<{w} (exp.)  Fano({w} dead)")
+        for pmt in check.pmts.values():
+            bursts = (
+                f"{num(100 * pmt.burst_fraction, '.1f')} % ({num(100 * pmt.burst_expected, '.1f')})"
+            )
+            print(
+                f"     {pmt.channel:3d} {pmt.events:8d} {pmt.rate_cps:10.1f}   "
+                f"{num(pmt.fano, '.2f'):>5s} +- {num(pmt.fano_err, '.2f'):<5s}  "
+                f"{bursts:>17s}   {num(pmt.fano_dead, '.2f'):>5s}"
+            )
+        print(
+            "     sum                        ",
+            f"{num(check.fano_all, '.2f'):>5s} +- {num(check.fano_all_err, '.2f'):<5s}  "
+            f"correlated excess {num(check.correlated_excess, '+.2f')}",
+        )
+        if np.isnan(check.fano_all):
+            print("     (no Fano factor: too few triggers per scan step)")
+        if self.Dead_time_us is not None:
+            removed = ", ".join(
+                f"PMT {c} {100 * f:.1f} %" for c, f in self.Dead_time_removed.items()
+            )
+            print(
+                "     Dead time               [us] -> ", self.Dead_time_us, f"(removed {removed})"
+            )
+        loaded = self.Counting_check_loaded
+        if loaded is not None and loaded is not check:
+            print(
+                "     Fano as loaded               -> ",
+                ", ".join(f"PMT {c} {num(p.fano, '.2f')}" for c, p in loaded.pmts.items()),
+            )
+        for issue in check.issues:
+            print("     Counting check: ", issue.message)
 
     def Compute_ToF(
         self, V_gate: list[float] | None = None, PMT_gate: list[int] | None = None
@@ -798,6 +946,7 @@ class CLSDataFrame:
         blocksize: float = 25e6,
         filter_calibration: bool | str = True,
         ignore_intercept: bool = False,
+        counting_check: bool = True,
     ) -> None:
         """
         Load CLS data run from an ASDF file and perform initial calibration.
@@ -816,6 +965,9 @@ class CLSDataFrame:
             readback check (see below), then fit. False: fit all points.
         ignore_intercept : bool, optional
             Whether to ignore the intercept in calibration fitting. Default is False.
+        counting_check : bool, optional
+            Check the PMT counting statistics (default True; ~1 s per million events).
+            Check_Counting runs it later.
 
         Notes
         -----
@@ -831,6 +983,10 @@ class CLSDataFrame:
         a monotonic sweep a straight line absorbs it as a one-step offset. Otherwise it is
         compared with a polynomial of cal_order. With filter_calibration True or False the check
         changes no numbers.
+
+        The PMT counting statistics are checked too (Counting_check, see Check_Counting) and a
+        CountingWarning is raised when a PMT's counts per trigger are not Poisson; the result
+        as loaded stays in Counting_check_loaded.
         """
         start = time.time()
 
@@ -843,6 +999,8 @@ class CLSDataFrame:
         self.run_filename = filename
         self.Set_Scan_Voltage_Map(None)
         self.Dropped_calibration_points = None
+        self.Dead_time_us = None
+        self.Dead_time_removed = {}
 
         with asdf.open(self.run_filename) as af:
             self.run_number = af.tree["Run"]
@@ -933,6 +1091,15 @@ class CLSDataFrame:
                 self.Cal_df["Residual"] = self.Cal_df["Read"] - self.Cal_df["Fit"]
 
             self.Run = dd.from_array(raw, columns=["TS", "DV", "Bunch", "TDC", "TOF", "Vrfq"])
+
+        self.Trigger_period_us = None
+        self.Counting_check = self.Counting_check_loaded = None
+        if raw.ndim == 2 and len(raw):
+            self.Trigger_period_us = trigger_period_us(raw[:, 0], raw[:, 2], raw[:, 4])
+        if counting_check and self.Trigger_period_us is not None:
+            self.Counting_check_loaded = self._check_counting(
+                raw[:, 1], raw[:, 2], raw[:, 3], raw[:, 4]
+            )
 
         self.TSstart = self.Run["TS"].min().compute()
         self.TSstop = self.Run["TS"].max().compute()
