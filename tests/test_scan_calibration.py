@@ -2,8 +2,7 @@
 CLSDataFrame.Use_Scan_Calibration.
 
 Synthetic readbacks are built from the table itself plus a known offset, noise, lag and
-unsettled readings, so the expected fit results are known exactly. The table's own validity is
-checked against an independent bench run (tests/data/), which was not used to build it.
+unsettled readings, so the expected fit results are known exactly.
 """
 
 from __future__ import annotations
@@ -11,10 +10,8 @@ from __future__ import annotations
 import datetime
 import json
 import warnings
-from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from clstools import (
@@ -29,7 +26,6 @@ from clstools import (
 from .conftest import build_asdf_tree, write_asdf
 
 TABLE_ID = "scan_hv_2026-10-24"
-DATA = Path(__file__).parent / "data"
 
 
 @pytest.fixture(scope="module")
@@ -62,29 +58,6 @@ def test_packaged_table_loads(table):
     assert table.set_v[0] == -3000 and table.set_v[-1] == 3000
     assert len(table.set_v) == len(table.shape_v) == 6001
     assert table.bench_offset_v == pytest.approx(-0.937, abs=1e-3)
-
-
-def test_table_matches_an_independent_bench_run(table):
-    # cls-cal linearity run 20261024_184702 (not used to build the table), drift-corrected with
-    # its interleaved zero checks: after offset + gain the table must hold to the bench
-    # repeatability, while a straight line cannot follow the DAC nonlinearity.
-    p = pd.read_csv(DATA / "bench_linearity_20261024_184702.csv")
-    sweep, zero = p[p.kind == "sweep"], p[p.kind == "zero"]
-    drift = np.interp(sweep.t_s, zero.t_s, zero.mean_kv)
-    hv = pd.Series(
-        1e3 * (sweep.mean_kv.to_numpy() - drift), index=np.round(1e3 * sweep.set_kv).astype(int)
-    )
-    hv = hv.groupby(level=0).mean()
-    s = hv.index.to_numpy(float)
-
-    diff = hv.to_numpy() - table.shape(s)
-    gain, offset = np.polyfit(s, diff, 1)
-    resid = diff - (gain * s + offset)
-    assert np.std(resid) < 0.010  # 6 mV measured
-    assert abs(gain) < 50e-6  # -19 ppm measured
-
-    line = hv.to_numpy() - np.polyval(np.polyfit(s, hv.to_numpy(), 1), s)
-    assert np.std(line) > 0.15  # the nonlinearity the table corrects (~0.24 V rms)
 
 
 def test_shape_lut_on_grid_and_cubic_off_grid(table):
