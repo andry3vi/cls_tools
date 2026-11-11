@@ -1,11 +1,17 @@
 from .calibration import CalibrationWarning as CalibrationWarning
+from .calibration import CampaignGain as CampaignGain
+from .calibration import CoolerRipple as CoolerRipple
 from .calibration import ReadbackFit as ReadbackFit
 from .calibration import ScanCalibration as ScanCalibration
 from .calibration import analyse_readback as analyse_readback
 from .calibration import available_tables as available_tables
+from .calibration import cooler_ripple as cooler_ripple
 from .calibration import load_table as load_table
 from .counting import CountingCheck as CountingCheck
 from .counting import CountingWarning as CountingWarning
 from .counting import PMTCounting as PMTCounting
+from .counting import SplitTest as SplitTest
 from .counting import check_counting as check_counting
+from .counting import pileup_fraction as pileup_fraction
+from .counting import split_tests as split_tests
 from .DataFrame import CLSDataFrame as CLSDataFrame

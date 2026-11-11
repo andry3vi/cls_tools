@@ -34,6 +34,8 @@ def simulate(
     afterpulse=None,
     shared_shape=None,
     cap=None,
+    tof_sigma=None,
+    drift=0.0,
     seed=0,
 ):
     """Raw events (TS, DV, Bunch, TDC, TOF, Vrfq) of a simulated run.
@@ -43,6 +45,8 @@ def simulate(
         0.5-3 us later.
     shared_shape: gamma shape of a per-trigger intensity common to all PMTs (mean 1).
     cap: at most this many events per PMT and trigger (counting losses).
+    tof_sigma: bunched beam, ToF ~ 70 us + N(0, tof_sigma); uniform over the period otherwise.
+    drift: the rate changes linearly by this fraction over the run (line or intensity drift).
     """
     rng = np.random.default_rng(seed)
     dv = np.arange(n_steps, dtype=float)
@@ -51,16 +55,19 @@ def simulate(
     trig = np.arange(sweeps * n_steps * block)
     step = (trig // block) % n_steps
     live = trig % block < per_step
-    intensity = np.ones(len(trig))
+    intensity = 1 + drift * (trig / len(trig) - 0.5)
     if shared_shape is not None:
-        intensity = rng.gamma(shared_shape, 1 / shared_shape, len(trig))
+        intensity = intensity * rng.gamma(shared_shape, 1 / shared_shape, len(trig))
     columns = []
     for pmt in pmts:
         n = rng.poisson(rate[step] * intensity) * live
         if cap is not None:
             n = np.minimum(n, cap)
         bunch = np.repeat(trig, n)
-        tof = rng.uniform(0.0, PERIOD, len(bunch))
+        if tof_sigma is None:
+            tof = rng.uniform(0.0, PERIOD, len(bunch))
+        else:
+            tof = np.clip(rng.normal(70.0, tof_sigma, len(bunch)), 0.0, PERIOD - 1e-6)
         m = (afterpulse or {}).get(pmt, 0.0)
         if m:
             k = rng.poisson(m, len(bunch))
@@ -316,3 +323,92 @@ def test_info_to_csv_has_the_counting_columns(afterpulsing_run, tmp_path):
     assert row["Trigger_period_us"] == PERIOD and row["Dead_time_us"] == 5.0
     assert row["Fano_pmt4"] == pytest.approx(1.0, abs=0.05)
     assert {"Events_pmt3", "Burst_fraction_pmt3", "Fano_dead_pmt3", "Fano_all"} <= set(row.index)
+
+
+# --------------------------------------------------------------------- split tests
+
+
+def splits(raw):
+    c = check_counting(raw[:, 1], raw[:, 2], raw[:, 3], raw[:, 4], PERIOD, ts=raw[:, 0])
+    return {sp.name: sp for sp in c.splits}
+
+
+def test_split_tests_are_one_for_poisson_counting():
+    got = splits(simulate(sweeps=40))
+    assert set(got) == {"odd/even trigger", "alternating 10 s blocks", "first/second half"}
+    for sp in got.values():
+        assert sp.n_setpoints == 40
+        assert sp.chi2_red == pytest.approx(1.0, abs=4 * sp.chi2_red_err)
+
+
+def test_first_second_half_split_sees_a_drift():
+    # the line moves / the intensity drifts by 30 % over the run (Yb 7547: halves 2.8 sigma apart)
+    got = splits(simulate(sweeps=40, drift=0.3))
+    assert got["first/second half"].chi2_red > 3
+    assert got["odd/even trigger"].chi2_red == pytest.approx(1.0, abs=0.35)
+
+
+def test_odd_even_split_sees_afterpulses():
+    got = splits(simulate(sweeps=40, afterpulse={4: 0.6}))
+    assert got["odd/even trigger"].chi2_red > 1.3
+
+
+def test_sparse_visits_get_no_time_splits():
+    # < 3 events per visit: empty visits are unseen and the visit exposure is biased
+    got = splits(simulate(per_step=2, gap=1, mean=0.3, sweeps=60))
+    assert np.isnan(got["first/second half"].chi2_red)
+    assert np.isnan(got["alternating 10 s blocks"].chi2_red)
+    assert np.isfinite(got["odd/even trigger"].chi2_red)
+
+
+def test_no_timestamps_no_split_tests():
+    assert check(simulate()).splits == ()
+
+
+# --------------------------------------------------------------------- pile-up
+
+
+def test_pileup_of_a_dc_beam_is_the_chance_rate():
+    raw = simulate(mean=2.0)
+    c = check(raw)
+    assert c.dead_time_us == 10.0
+    # rate per trigger 2-4 over a 1000 us window: 1 - exp(-rate * 10 / 1000) ~ 2-4 %
+    rate = 2.0 * (1 + np.exp(-0.5 * ((np.arange(40) - 20) / 3) ** 2))
+    want = np.average(1 - np.exp(-rate * 10 / PERIOD), weights=rate)
+    for p in c.pmts.values():
+        assert p.pileup_dead == pytest.approx(want, rel=0.1)
+
+
+def test_pileup_of_a_bunched_beam_is_large():
+    c = check(simulate(mean=0.5, tof_sigma=2.0))
+    for p in c.pmts.values():
+        assert p.pileup_dead > 0.2
+        assert p.fano == pytest.approx(1.0, abs=0.05)  # Poisson nevertheless
+        assert p.fano_dead < 0.9  # the dead time takes real photons
+
+
+def test_apply_dead_time_on_a_bunched_beam_warns(tmp_path):
+    raw = simulate(mean=0.5, tof_sigma=2.0)
+    cal_set = np.arange(-5.0, 6.0)
+    tree = build_asdf_tree(cal_set=cal_set, cal_readback=cal_set / 1000.0, raw=raw)
+    frame, _ = load(write_asdf(tmp_path, tree))
+    with pytest.warns(CountingWarning, match="by pile-up: PMT 3 .*PMT 4 .*1 us"):
+        frame.apply_dead_time()
+    assert frame.Dead_time_us == 10.0
+    assert all(f > 0.2 for f in frame.Dead_time_pileup.values())
+
+
+def test_default_dead_time_is_10_us_and_dc_runs_do_not_warn(afterpulsing_run, capsys):
+    frame, _ = load(afterpulsing_run[0])
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        frame.apply_dead_time()
+    assert not [w for w in caught if "pile-up" in str(w.message)]
+    assert frame.Dead_time_us == 10.0
+    assert all(f < 0.01 for f in frame.Dead_time_pileup.values())
+    frame.Frequency_stepsize = 1e6
+    frame.Info()
+    out = capsys.readouterr().out
+    assert "Fano(10us dead)  pile-up(10us)" in out
+    assert "Split tests" in out and "first/second half" in out
+    assert "of which pile-up (real)" in out

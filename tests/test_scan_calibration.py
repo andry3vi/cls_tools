@@ -300,13 +300,53 @@ def test_offset_override_keeps_the_fit_as_diagnostic(tmp_path, table):
     assert fit.offset_v == pytest.approx(-0.84, abs=0.05)
 
 
-def test_run_before_the_table_date_warns(tmp_path, table):
+def test_run_before_the_table_validity_warns(tmp_path, table):
+    # the DAC nonlinearity of the table is in the files from run 5487 (4 Nov 2024) on
+    tree = run_tree(table, run=5400)
+    tree["raw"][:, 0] = 1_727_000_000.0 + np.sort(np.random.default_rng(4).uniform(0, 600, 400))
+    frame = CLSDataFrame()
+    frame.Load_Run(str(write_asdf(tmp_path, tree)))
+    with pytest.warns(
+        CalibrationWarning, match="predates scan calibration table .* does not describe"
+    ):
+        frame.Use_Scan_Calibration()
+
+
+def test_run_inside_the_validity_before_the_measurement_does_not_warn(tmp_path, table):
+    tree = run_tree(table, run=7509)
+    tree["raw"][:, 0] -= 170 * 86400  # May 2026, before the bench measurement of 24 Oct 2026
+    frame = CLSDataFrame()
+    frame.Load_Run(str(write_asdf(tmp_path, tree)))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", CalibrationWarning)
+        frame.Use_Scan_Calibration()
+
+
+def test_validity_on_the_first_day_goes_by_run_number(table):
+    day = datetime.date(2024, 11, 4)
+    assert table.describes(day, 5487) and not table.describes(day, 5486)
+    assert table.describes(day) and table.describes(datetime.date(2024, 11, 5), 1)
+    assert not table.describes(datetime.date(2024, 11, 3), 9999)
+
+
+def test_table_without_validity_falls_back_to_the_measurement_date(tmp_path, table):
+    d = {
+        "format": "clstools-scan-calibration",
+        "format_version": 1,
+        "id": "no-validity",
+        "measured": "2026-10-24",
+        "set_v": table.set_v.tolist(),
+        "shape_v": table.shape_v.tolist(),
+        "bench_offset_v": -0.9,
+    }
+    cal = ScanCalibration.from_dict(d)
+    assert cal.valid_from is None and cal.first_valid_date == datetime.date(2026, 10, 24)
     tree = run_tree(table)
     tree["raw"][:, 0] -= 30 * 86400  # September 2026
     frame = CLSDataFrame()
     frame.Load_Run(str(write_asdf(tmp_path, tree)))
-    with pytest.warns(CalibrationWarning, match="predates scan calibration table"):
-        frame.Use_Scan_Calibration()
+    with pytest.warns(CalibrationWarning, match="predates scan calibration table no-validity"):
+        frame.Use_Scan_Calibration(table=cal)
 
 
 def test_off_grid_and_out_of_range_set_voltages_warn(tmp_path, table):
@@ -352,3 +392,108 @@ def test_unknown_scan_model_is_rejected(tmp_path, table):
     frame.Load_Run(str(write_asdf(tmp_path, run_tree(table))))
     with pytest.raises(ValueError, match="unknown scan model"):
         frame.Use_Scan_Calibration(model="linear")
+
+
+# --------------------------------------------------------------------- run scale (gain)
+
+
+def scaled_readback(table, cal_set, offset, scale, noise=0.05, seed=5):
+    rng = np.random.default_rng(seed)
+    return offset + scale * table.shape(cal_set) + rng.normal(0.0, noise, len(cal_set))
+
+
+def test_packaged_campaign_gains(table):
+    bi = table.campaign_gains["Bi-Oct-Offline"]
+    assert 1e6 * (bi.gain - 1) == pytest.approx(-64.5, abs=0.5)
+    assert bi.n_wide == 70 and not bi.unstable
+    assert table.campaign_gains["IGI-V-Fe-Rh-Offline-CLS"].unstable
+    assert table.valid_from == datetime.date(2024, 11, 4) and table.valid_from_run == 5487
+
+
+def test_wide_calibration_fits_the_scale(table):
+    s = scan((-1500, -1000), (500, 1000))  # spans 2500 V
+    fit = table.fit_run(s, scaled_readback(table, s, -0.9, 1 - 80e-6))
+    assert fit.scale_mode == "free"
+    assert 1e6 * (fit.scale - 1) == pytest.approx(-80, abs=4 * 1e6 * fit.scale_err)
+    assert fit.offset_v == pytest.approx(-0.9, abs=4 * fit.offset_err_v)
+    assert fit.gain_ppm == pytest.approx(1e6 * (fit.scale - 1), abs=0.5)
+
+
+def test_narrow_calibration_takes_the_campaign_gain(table):
+    s = scan((300, 360))
+    campaign = table.campaign_gains["I340-V_CLS"]
+    fit = table.fit_run(s, scaled_readback(table, s, -0.9, campaign.gain), campaign="I340-V_CLS")
+    assert fit.scale_mode == "campaign"
+    assert fit.scale == campaign.gain and fit.scale_err == campaign.gain_sigma
+    assert fit.offset_v == pytest.approx(-0.9, abs=4 * fit.offset_err_v)
+
+    fit = table.fit_run(s, scaled_readback(table, s, -0.9, 1.0), campaign="unknown campaign")
+    assert fit.scale_mode == "bench" and fit.scale == 1.0
+
+
+def test_unstable_campaign_is_flagged(table):
+    s = scan((300, 360))
+    fit = table.fit_run(s, scaled_readback(table, s, -0.9, 1.0), campaign="IGI-V-Fe-Rh-Offline-CLS")
+    assert fit.scale_mode == "campaign" and "campaign_gain" in fit.kinds
+
+
+@pytest.mark.parametrize(
+    "gain, mode, scale",
+    [("bench", "bench", 1.0), (0.99995, "given", 0.99995), ("campaign", "campaign", None)],
+)
+def test_gain_mode_can_be_chosen(table, gain, mode, scale):
+    s = scan((-1500, 1500))
+    rb = scaled_readback(table, s, -0.9, 1 - 80e-6)
+    fit = table.fit_run(s, rb, gain=gain, campaign="Bi-Oct-Offline")
+    assert fit.scale_mode == mode
+    want = table.campaign_gains["Bi-Oct-Offline"].gain if scale is None else scale
+    assert fit.scale == want
+    # the offset follows the scale: readback - scale * table
+    keep = fit.keep
+    r = fit.readback_v[keep] - want * table.shape(fit.set_v[keep])
+    assert fit.offset_v == pytest.approx(r.mean())
+
+
+def test_free_gain_on_a_narrow_calibration_is_allowed(table):
+    s = scan((300, 360))
+    fit = table.fit_run(s, scaled_readback(table, s, -0.9, 1.0), gain="free")
+    assert fit.scale_mode == "free" and fit.scale_err > 200e-6  # hundreds of ppm
+
+
+def test_unknown_gain_mode_is_rejected(table):
+    with pytest.raises(ValueError, match="unknown gain mode"):
+        table.fit_run(scan((0, 100)), scaled_readback(table, scan((0, 100)), -0.9, 1.0), gain="x")
+
+
+def test_use_scan_calibration_applies_the_run_scale(tmp_path, table):
+    ranges = ((-1500, -1400), (1000, 1100))
+    s = scan(*ranges)
+    tree = run_tree(table, ranges=ranges, experiment="I340-V_CLS")
+    tree["CalReadback"] = scaled_readback(table, s, -0.88, 1 - 85e-6) / 1000.0
+    frame = CLSDataFrame()
+    frame.Load_Run(str(write_asdf(tmp_path, tree)))
+    fit = frame.Use_Scan_Calibration()
+    assert frame.Scan_scale_mode == "free" == fit.scale_mode
+    assert 1e6 * (frame.Scan_scale - 1) == pytest.approx(-85, abs=4e6 * fit.scale_err)
+    frame.Compute_Voltages()
+    dv = frame.Sorted["DV"].to_numpy()
+    np.testing.assert_allclose(
+        frame.Sorted["DV_cal"].to_numpy(), fit.scale * table.shape(dv) + fit.offset_v
+    )
+
+    frame.Use_Scan_Calibration(gain="campaign")
+    assert frame.Scan_scale == table.campaign_gains["I340-V_CLS"].gain
+
+
+def test_dead_readback_falls_back_to_the_bench_offset(tmp_path, table):
+    # 54 files of 2024-2026 read ~0 V everywhere (CLS systematics docs/readback_lag.md)
+    tree = run_tree(table)
+    tree["CalReadback"] = np.random.default_rng(6).normal(0.0, 1e-5, len(tree["CalSet"]))
+    frame = CLSDataFrame()
+    with pytest.warns(CalibrationWarning, match="readback scale"):
+        frame.Load_Run(str(write_asdf(tmp_path, tree)))
+    with pytest.warns(CalibrationWarning, match="dead or corrupt.*bench offset"):
+        fit = frame.Use_Scan_Calibration()
+    assert not fit.usable
+    assert frame.Scan_offset_v == table.bench_offset_v
+    assert frame.Scan_scale == 1.0
