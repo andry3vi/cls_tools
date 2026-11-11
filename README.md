@@ -127,10 +127,6 @@ indicators:
        3    78566      131.9    1.23 +- 0.01         2.1 % (0.1)    1.02             0.2 %
        4   103495      173.7    2.63 +- 0.00         6.9 % (0.1)    1.04             0.3 %
      sum                          2.02 +- 0.00   correlated excess -0.00
-     Split tests, counts per set voltage (chi2/dof, 1 = Poisson):
-       odd/even trigger         2.09 +- 0.08 (293 set voltages)
-       alternating 10 s blocks  2.06 +- 0.08 (293 set voltages)
-       first/second half        2.38 +- 0.08 (293 set voltages)
 ```
 
 - **bursts**: the fraction of a PMT's events that come less than 5 µs after its previous event,
@@ -141,10 +137,6 @@ indicators:
 - **correlated excess**: how much more the summed counts fluctuate than the single PMTs. Beam or
   laser intensity changes and noise bursts on all channels show up here; `apply_filter` removes the
   noise bursts.
-- **split tests**: a Fano test of the spectrum, which compares the counts per set voltage of two
-  halves of the data and gives 1 for Poisson counting. Odd/even triggers see afterpulses; alternating
-  10 s blocks see intensity fluctuations between sweeps; the first and second half see drifts of the
-  line during the run.
 
 The artificial dead time is opt-in:
 

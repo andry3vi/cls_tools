@@ -374,10 +374,6 @@ class CLSDataFrame:
                 output[f"Burst_fraction_pmt{c}"] = [pmt.burst_fraction]
                 output[f"Fano_dead_pmt{c}"] = [pmt.fano_dead]
                 output[f"Pileup_dead_pmt{c}"] = [pmt.pileup_dead]
-            for split, key in zip(
-                check.splits, ("Split_odd_even", "Split_blocks", "Split_halves"), strict=False
-            ):
-                output[key] = [split.chi2_red]
             output["Dead_time_us"] = [self.Dead_time_us]
         df_out = pd.DataFrame(output)
         df_out.to_csv(filename, index=False)
@@ -974,23 +970,20 @@ class CLSDataFrame:
         the previous event of the same PMT (afterpulse bursts) and its uncorrelated expectation;
         the Fano factor after a 10 us dead time, and the fraction of uncorrelated events that
         dead time would remove (pile-up). For the summed counts, how much more they fluctuate
-        than the single PMTs (beam or laser intensity, noise bursts on all channels), and the
-        split tests of the counts per set voltage: odd/even triggers, alternating 10 s blocks,
-        first/second half of the run (chi2/dof, 1 for Poisson; see clstools.counting).
-        A CountingWarning is raised when a Fano factor is off.
+        than the single PMTs (beam or laser intensity, noise bursts on all channels).
+        A CountingWarning is raised when a Fano factor is off; see clstools.counting.
 
         Returns
         -------
         CountingCheck
             Also stored in Counting_check and shown by Info.
         """
-        tmp = self.Run[["TS", "DV", "Bunch", "TDC", "TOF"]].compute()
+        tmp = self.Run[["DV", "Bunch", "TDC", "TOF"]].compute()
         return self._check_counting(
             tmp["DV"].to_numpy(),
             tmp["Bunch"].to_numpy(),
             tmp["TDC"].to_numpy(),
             tmp["TOF"].to_numpy(),
-            tmp["TS"].to_numpy(),
         )
 
     def _trigger_period(self) -> float:
@@ -1007,9 +1000,8 @@ class CLSDataFrame:
         bunch: np.ndarray,
         tdc: np.ndarray,
         tof: np.ndarray,
-        ts: np.ndarray | None = None,
     ) -> CountingCheck:
-        self.Counting_check = check_counting(dv, bunch, tdc, tof, self._trigger_period(), ts=ts)
+        self.Counting_check = check_counting(dv, bunch, tdc, tof, self._trigger_period())
         for issue in self.Counting_check.issues:
             warn_counting(f"run {self.run_number}: {issue.message}")
         return self.Counting_check
@@ -1046,16 +1038,6 @@ class CLSDataFrame:
         )
         if np.isnan(check.fano_all):
             print("     (no Fano factor: too few triggers per scan step)")
-        if check.splits:
-            print("     Split tests, counts per set voltage (chi2/dof, 1 = Poisson):")
-            for split in check.splits:
-                value = (
-                    "n/a (too few set voltages with >= 3 events per visit)"
-                    if np.isnan(split.chi2_red)
-                    else f"{split.chi2_red:.2f} +- {split.chi2_red_err:.2f} "
-                    f"({split.n_setpoints} set voltages)"
-                )
-                print(f"       {split.name:<24s} {value}")
         if self.Dead_time_us is not None:
             removed = ", ".join(
                 f"PMT {c} {100 * f:.1f} %" for c, f in self.Dead_time_removed.items()
@@ -1383,7 +1365,7 @@ class CLSDataFrame:
             self.Trigger_period_us = trigger_period_us(raw[:, 0], raw[:, 2], raw[:, 4])
         if counting_check and self.Trigger_period_us is not None:
             self.Counting_check_loaded = self._check_counting(
-                raw[:, 1], raw[:, 2], raw[:, 3], raw[:, 4], raw[:, 0]
+                raw[:, 1], raw[:, 2], raw[:, 3], raw[:, 4]
             )
 
         self.TSstart = self.Run["TS"].min().compute()

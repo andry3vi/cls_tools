@@ -72,8 +72,8 @@ Checks:
   after jumps, and a readback scale off by more than 1 % (dead or corrupt readback). This
   changes no numbers unless `filter_calibration='robust'`.
 - **PMT counting** (`Counting_check`, unless `counting_check=False`). Per PMT: Fano factor of the
-  counts per trigger, afterpulse bursts, and the effect of a dead time. On the summed counts: the
-  split tests. Raises a `CountingWarning` when a PMT's Fano factor is off. See
+  counts per trigger, afterpulse bursts, and the effect of a dead time. Raises a
+  `CountingWarning` when a PMT's Fano factor is off. See
   [`Check_Counting`](#check_counting).
 
 ```python
@@ -261,22 +261,9 @@ Reruns the counting check on the current events (after any filter) and returns t
 | Fano(10us dead) | the Fano factor after a 10 µs dead time | 1 |
 | pile-up(10us) | fraction of uncorrelated events a 10 µs dead time removes | DC ~0.2 %, bunched several % |
 
-On the summed counts:
-- **correlated excess**: how much more the sum fluctuates than the single PMTs (beam or laser
-  intensity, noise bursts). Healthy is 0.
-- **split tests**, a Fano test of the spectrum. The counts per set voltage of two halves of the
-  data are compared: χ² = Σ (A − rB)² / (A + r²B), with r the exposure ratio. χ²/dof is 1 for
-  Poisson counting. The three splits are:
-
-| split | what makes it > 1 |
-|---|---|
-| odd/even trigger | per-trigger effects: afterpulses, noise bursts (Bi 8244: 2.1) |
-| alternating 10 s blocks | fluctuations between sweeps: beam or laser intensity |
-| first/second half | slow drifts of the line position or intensity during the run (Yb 7504: 1.5) |
-
-Set voltages with fewer than 3 events per visit are left out of the time splits, because empty
-visits are not seen there. With fewer than 10 set voltages left, a split gives n/a.
-`BunchesPerChannel` 1 runs get no Fano factor.
+On the summed counts, the **correlated excess**: how much more the sum fluctuates than the
+single PMTs (beam or laser intensity, noise bursts). Healthy is 0. `BunchesPerChannel` 1 runs
+get no Fano factor.
 
 A `CountingWarning` is raised when |Fano − 1| > 0.1 and more than 5σ on a PMT with at least
 1000 events. The message names the likely cause: afterpulse bursts, whether a dead time cures it
@@ -340,7 +327,7 @@ Counts per set voltage `DV`, in `Raw_binned`. It needs no voltage or frequency c
 
 Prints the run, the calibration and its checks, the scan table with the run offset and scale,
 the cooler (correction, window, faulty readings, alias period, ripple), the PMT counting table
-with the split tests and the dead time, the scanned ranges and setpoint bins, and the timings.
+and the dead time, the scanned ranges and setpoint bins, and the timings.
 Example (Bi 8244):
 
 ```text
@@ -367,10 +354,6 @@ Example (Bi 8244):
        3    78566      131.9    1.23 +- 0.01         2.1 % (0.1)    1.02             0.2 %
        4   103495      173.7    2.63 +- 0.00         6.9 % (0.1)    1.04             0.3 %
      sum                          2.02 +- 0.00   correlated excess -0.00
-     Split tests, counts per set voltage (chi2/dof, 1 = Poisson):
-       odd/even trigger         2.09 +- 0.08 (293 set voltages)
-       alternating 10 s blocks  2.06 +- 0.08 (293 set voltages)
-       first/second half        2.38 +- 0.08 (293 set voltages)
      Counting check:  PMT 4 counts are not Poisson: Fano factor 2.63 +- 0.00; 6.9 % of its
                       events come less than 5 us after the previous one (0.1 % expected):
                       afterpulse bursts; a 10 us dead time gives 1.04 (apply_dead_time)
@@ -380,8 +363,7 @@ Example (Bi 8244):
      Under-visited, left out [V] ->  [-130.0, 530.0]
 ```
 
-Here the split tests are all about 2 because of the afterpulses. After `apply_dead_time()`
-(5.2 % of the events removed) the Fano factors are 1.02–1.04 and the split tests 1.0–1.2.
+After `apply_dead_time()` (5.2 % of the events removed) the Fano factors are 1.02–1.04.
 
 #### `Info_to_csv(filename)`
 
@@ -389,7 +371,7 @@ Writes the same information as one CSV row: metadata, calibration coefficients, 
 (`Scan_offset_v`, `Scan_scale`, `Scan_scale_mode`, readback rms, gain, lag), cooler
 (`Cooler_window_s`, `Cooler_alias_period_s`, `Cooler_ripple_rms_v`, faulty readings), setpoint
 bins, and counting (`Fano_pmt<c>`, `Burst_fraction_pmt<c>`, `Fano_dead_pmt<c>`,
-`Pileup_dead_pmt<c>`, `Split_odd_even`, `Split_blocks`, `Split_halves`, `Dead_time_us`).
+`Pileup_dead_pmt<c>`, `Dead_time_us`).
 
 ### Doppler helpers
 
@@ -508,10 +490,10 @@ Centred moving average over `window_s` seconds.
 
 ## clstools.counting
 
-#### `check_counting(dv, bunch, tdc, tof, period_us, ts=None, dead_time_us=10.0)`
+#### `check_counting(dv, bunch, tdc, tof, period_us, dead_time_us=10.0)`
 
-The counting check on raw event arrays in any order (see `Check_Counting`). With `ts` the split
-tests are made too. Returns a `CountingCheck`.
+The counting check on raw event arrays in any order (see `Check_Counting`). `dead_time_us` is
+the dead time of the `fano_dead` and `pileup_dead` indicators. Returns a `CountingCheck`.
 
 #### `trigger_period_us(ts, bunch, tof)`
 
@@ -534,16 +516,11 @@ the same set-voltage visit has the same rate and ToF profile but no afterpulse c
 the fraction of events with a same-PMT event less than the dead time earlier in ToF *in the
 previous trigger* is the pile-up loss. Bi 8244/8245: 0.15–0.27 % at 10 µs; Yb+ I340: 1.0–4.5 %.
 
-#### `split_tests(dv, bunch, ts, block_s=10.0)`
-
-The three split tests of the summed counts (see `Check_Counting`), as `SplitTest(name, chi2_red,
-chi2_red_err, n_setpoints)`.
-
-#### `CountingCheck`, `PMTCounting`, `SplitTest`, `CountingIssue`
+#### `CountingCheck`, `PMTCounting`, `CountingIssue`
 
 These are the results.
 - `CountingCheck` holds `period_us`, `n_triggers`, `n_fano_triggers`, `pmts` (`{channel:
-  PMTCounting}`), `fano_all`, `fano_all_err`, `correlated_excess`, `splits`, `dead_time_us`,
+  PMTCounting}`), `fano_all`, `fano_all_err`, `correlated_excess`, `dead_time_us`,
   `issues` and `kinds`.
 - `PMTCounting` holds `channel`, `events`, `rate_cps`, `fano`, `fano_err`, `burst_fraction`,
   `burst_expected`, `burst_excess`, `fano_dead` and `pileup_dead`.

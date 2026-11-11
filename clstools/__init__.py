@@ -10,8 +10,6 @@ from .calibration import load_table as load_table
 from .counting import CountingCheck as CountingCheck
 from .counting import CountingWarning as CountingWarning
 from .counting import PMTCounting as PMTCounting
-from .counting import SplitTest as SplitTest
 from .counting import check_counting as check_counting
 from .counting import pileup_fraction as pileup_fraction
-from .counting import split_tests as split_tests
 from .DataFrame import CLSDataFrame as CLSDataFrame

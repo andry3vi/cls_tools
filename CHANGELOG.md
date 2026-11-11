@@ -46,11 +46,6 @@ per-event V within 5 µV from the table's rounding. On the seven systematics run
   - the Fano factor a 10 µs dead time would give, and the fraction of uncorrelated (real)
     events that dead time would remove (`pileup_fraction`; Bi 0.15–0.27 %, Yb+ 1.0–4.5 %).
 
-  On the summed counts it makes split tests of the counts per set voltage (`split_tests`):
-  odd/even trigger, alternating 10 s blocks, first/second half; χ²/dof is 1 for Poisson. Bi
-  8244 gives 2.1/2.1/2.4 from the afterpulses; Yb+ gives 0.95–1.09, with halves up to 1.48 from
-  line drifts.
-
   `Load_Run` runs the check unless `counting_check=False`, and warns when a PMT is not Poisson.
   `Check_Counting` reruns it, and `Info`/`Info_to_csv` report it. On the Bi runs it flags PMT 4:
   Fano 2.2–3.1, against 1.1–1.2 for PMT 3.

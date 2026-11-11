@@ -35,7 +35,6 @@ def simulate(
     shared_shape=None,
     cap=None,
     tof_sigma=None,
-    drift=0.0,
     seed=0,
 ):
     """Raw events (TS, DV, Bunch, TDC, TOF, Vrfq) of a simulated run.
@@ -46,7 +45,6 @@ def simulate(
     shared_shape: gamma shape of a per-trigger intensity common to all PMTs (mean 1).
     cap: at most this many events per PMT and trigger (counting losses).
     tof_sigma: bunched beam, ToF ~ 70 us + N(0, tof_sigma); uniform over the period otherwise.
-    drift: the rate changes linearly by this fraction over the run (line or intensity drift).
     """
     rng = np.random.default_rng(seed)
     dv = np.arange(n_steps, dtype=float)
@@ -55,7 +53,7 @@ def simulate(
     trig = np.arange(sweeps * n_steps * block)
     step = (trig // block) % n_steps
     live = trig % block < per_step
-    intensity = 1 + drift * (trig / len(trig) - 0.5)
+    intensity = np.ones(len(trig))
     if shared_shape is not None:
         intensity = intensity * rng.gamma(shared_shape, 1 / shared_shape, len(trig))
     columns = []
@@ -325,46 +323,6 @@ def test_info_to_csv_has_the_counting_columns(afterpulsing_run, tmp_path):
     assert {"Events_pmt3", "Burst_fraction_pmt3", "Fano_dead_pmt3", "Fano_all"} <= set(row.index)
 
 
-# --------------------------------------------------------------------- split tests
-
-
-def splits(raw):
-    c = check_counting(raw[:, 1], raw[:, 2], raw[:, 3], raw[:, 4], PERIOD, ts=raw[:, 0])
-    return {sp.name: sp for sp in c.splits}
-
-
-def test_split_tests_are_one_for_poisson_counting():
-    got = splits(simulate(sweeps=40))
-    assert set(got) == {"odd/even trigger", "alternating 10 s blocks", "first/second half"}
-    for sp in got.values():
-        assert sp.n_setpoints == 40
-        assert sp.chi2_red == pytest.approx(1.0, abs=4 * sp.chi2_red_err)
-
-
-def test_first_second_half_split_sees_a_drift():
-    # the line moves / the intensity drifts by 30 % over the run (Yb 7547: halves 2.8 sigma apart)
-    got = splits(simulate(sweeps=40, drift=0.3))
-    assert got["first/second half"].chi2_red > 3
-    assert got["odd/even trigger"].chi2_red == pytest.approx(1.0, abs=0.35)
-
-
-def test_odd_even_split_sees_afterpulses():
-    got = splits(simulate(sweeps=40, afterpulse={4: 0.6}))
-    assert got["odd/even trigger"].chi2_red > 1.3
-
-
-def test_sparse_visits_get_no_time_splits():
-    # < 3 events per visit: empty visits are unseen and the visit exposure is biased
-    got = splits(simulate(per_step=2, gap=1, mean=0.3, sweeps=60))
-    assert np.isnan(got["first/second half"].chi2_red)
-    assert np.isnan(got["alternating 10 s blocks"].chi2_red)
-    assert np.isfinite(got["odd/even trigger"].chi2_red)
-
-
-def test_no_timestamps_no_split_tests():
-    assert check(simulate()).splits == ()
-
-
 # --------------------------------------------------------------------- pile-up
 
 
@@ -410,5 +368,4 @@ def test_default_dead_time_is_10_us_and_dc_runs_do_not_warn(afterpulsing_run, ca
     frame.Info()
     out = capsys.readouterr().out
     assert "Fano(10us dead)  pile-up(10us)" in out
-    assert "Split tests" in out and "first/second half" in out
     assert "of which pile-up (real)" in out

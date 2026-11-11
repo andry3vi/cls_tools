@@ -41,17 +41,6 @@ Indicators, per PMT:
 and for the summed counts, the excess of their Fano factor over the PMTs' own (correlated
 fluctuations: beam or laser intensity, noise bursts on all channels).
 
-Split tests (a Fano test of the spectrum, CLS systematics scripts/yb_afterpulse.py): the counts
-per set voltage of two halves of the data are compared, chi2 = sum_s (A_s - r_s B_s)^2 /
-(A_s + r_s^2 B_s) with r_s the exposure ratio, and chi2 / dof is 1 for Poisson counting:
-    odd/even trigger      per-trigger statistics only (afterpulses, noise bursts)
-    alternating blocks    adds every fluctuation that decorrelates between sweeps (beam or laser
-                          intensity on the BLOCK_S scale): what adds variance to the spectrum
-    first/second half     adds slow drifts of the line position or shape during the run
-The exposure of the time splits is the number of visits of each set voltage in each half, seen
-from the events, so set voltages with fewer than SPLIT_MIN_EVENTS_PER_VISIT events per visit
-(where empty visits go unseen) are left out of them.
-
 Only the Fano factors raise a CountingWarning (|F - 1| > FANO_TOL and > FANO_SIGMA sigma, PMTs
 with at least MIN_EVENTS events); the burst indicators say whether a dead time would cure it.
 """
@@ -76,9 +65,6 @@ BURST_WARN = 0.01
 MIN_EVENTS = 1000  # fewer events on a PMT: indicators reported, no warning
 MIN_TRIGGERS_PER_STEP = 20  # scan steps with fewer triggers are left out of the Fano factor
 DEFAULT_PERIOD_US = 1000.0
-BLOCK_S = 10.0  # block length of the alternating-blocks split test
-SPLIT_MIN_EVENTS_PER_VISIT = 3.0  # set voltages below this are left out of the time splits
-SPLIT_MIN_SETPOINTS = 10  # fewer usable set voltages: no split test result
 
 
 class CountingWarning(UserWarning):
@@ -114,16 +100,6 @@ class PMTCounting:
 
 
 @dataclass(frozen=True)
-class SplitTest:
-    """Dispersion of the counts per set voltage between two halves of the data."""
-
-    name: str
-    chi2_red: float  # 1 for Poisson counting
-    chi2_red_err: float  # sqrt(2 / n)
-    n_setpoints: int
-
-
-@dataclass(frozen=True)
 class CountingCheck:
     period_us: float
     n_triggers: int  # first to last trigger of the run, for the rates
@@ -133,7 +109,6 @@ class CountingCheck:
     fano_all_err: float
     correlated_excess: float  # fano_all minus the rate-weighted Fano of the single PMTs
     issues: tuple[CountingIssue, ...]
-    splits: tuple[SplitTest, ...] = ()  # summed counts of all PMTs; empty without timestamps
     dead_time_us: float = DEAD_TIME_US  # of the fano_dead / pileup_dead indicators
 
     @property
@@ -321,70 +296,21 @@ def pileup_fraction(
     return out
 
 
-def split_tests(
-    dv: np.ndarray, bunch: np.ndarray, ts: np.ndarray, block_s: float = BLOCK_S
-) -> tuple[SplitTest, ...]:
-    """Split tests of the counts per set voltage (all events given), see the module docstring."""
-    bunch, dv, ts = _time_order(bunch, dv, ts)
-    ts = ts.astype(np.float64)
-    names = ("odd/even trigger", f"alternating {block_s:g} s blocks", "first/second half")
-    if len(bunch) < 2:
-        return tuple(SplitTest(n, np.nan, np.nan, 0) for n in names)
-    _, first = _visit_starts(dv)
-    setpoints, inv = np.unique(dv, return_inverse=True)
-    k = len(setpoints)
-    v_inv = inv[first]
-    vt = ts[first]
-    visits = np.bincount(v_inv, minlength=k)
-    counts = np.bincount(inv, minlength=k)
-    dense = counts >= SPLIT_MIN_EVENTS_PER_VISIT * np.maximum(visits, 1)
-    t0, tmed = float(ts.min()), float(np.median(vt))
-
-    out = []
-    for name, ev_a, visit_a in (
-        (names[0], bunch % 2 == 0, None),
-        (names[1], ((ts - t0) // block_s) % 2 == 0, ((vt - t0) // block_s) % 2 == 0),
-        (names[2], ts < tmed, vt < tmed),
-    ):
-        a = np.bincount(inv[ev_a], minlength=k).astype(float)
-        b = np.bincount(inv[~ev_a], minlength=k).astype(float)
-        if visit_a is None:
-            r = np.full(k, a.sum() / b.sum() if b.sum() else np.nan)
-            ok, nfix = a + b > 0, 1
-        else:
-            va = np.bincount(v_inv[visit_a], minlength=k).astype(float)
-            vb = np.bincount(v_inv[~visit_a], minlength=k).astype(float)
-            with np.errstate(divide="ignore", invalid="ignore"):
-                r = va / vb
-            ok, nfix = (a + b > 0) & (va > 0) & (vb > 0) & dense, 0
-        ok &= np.isfinite(r)
-        n = int(ok.sum())
-        if n - nfix < SPLIT_MIN_SETPOINTS:
-            out.append(SplitTest(name, np.nan, np.nan, n))
-            continue
-        chi = (a[ok] - r[ok] * b[ok]) ** 2 / (a[ok] + r[ok] ** 2 * b[ok])
-        out.append(SplitTest(name, float(chi.sum() / (n - nfix)), float(np.sqrt(2.0 / n)), n))
-    return tuple(out)
-
-
 def check_counting(
     dv: np.ndarray,
     bunch: np.ndarray,
     tdc: np.ndarray,
     tof: np.ndarray,
     period_us: float,
-    ts: np.ndarray | None = None,
     dead_time_us: float = DEAD_TIME_US,
 ) -> CountingCheck:
     """Counting statistics of a run's events (any order) per PMT channel and summed.
 
-    With the timestamps ts the split tests of the summed counts are made too. dead_time_us is
-    the dead time of the fano_dead and pileup_dead indicators.
+    dead_time_us is the dead time of the fano_dead and pileup_dead indicators.
     """
     dv, tdc, tof = np.asarray(dv, float), np.asarray(tdc), np.asarray(tof, float)
     bunch = np.asarray(bunch).astype(np.int64)
-    ts_arr = np.asarray(ts, float) if ts is not None else np.zeros(len(bunch))
-    bunch, dv, tdc, tof, ts_arr = _time_order(bunch, dv, tdc, tof, ts_arr)
+    bunch, dv, tdc, tof = _time_order(bunch, dv, tdc, tof)
     t = event_time_us(bunch, tof, period_us)
     triggers = _Triggers(dv, bunch)
     n_triggers = int(bunch[-1] - bunch[0] + 1) if len(bunch) else 0
@@ -424,7 +350,6 @@ def check_counting(
         fano_all_err=fano_all_err,
         correlated_excess=correlated,
         issues=(),
-        splits=split_tests(dv, bunch, ts_arr) if ts is not None else (),
         dead_time_us=float(dead_time_us),
     )
     return CountingCheck(**{**check.__dict__, "issues": _issues(check)})
