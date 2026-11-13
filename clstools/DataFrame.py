@@ -35,6 +35,7 @@ from .counting import (
     trigger_period_us,
 )
 from .counting import warn as warn_counting
+from .scan import ScanDwells, scan_dwells
 
 
 class CLSDataFrame:
@@ -178,7 +179,8 @@ class CLSDataFrame:
         self.Run: dd.DataFrame = None  # type: ignore[assignment]
         self.Binned: pd.DataFrame = None
         self.Setpoint_binned: pd.DataFrame = None
-        self.Setpoint_dropped: list[float] = []  # under-visited set voltages left out
+        self.Setpoint_dropped: list[float] = []  # under-exposed set voltages left out
+        self.Scan_dwells: ScanDwells | None = None  # reconstructed scan (Compute_Setpoint_Bins)
         self.ToF_binned: pd.DataFrame = None
         self.Raw_binned: pd.DataFrame = None
         self.Size: int = None  # type: ignore[assignment]
@@ -286,9 +288,16 @@ class CLSDataFrame:
             print(f"         from {range[0]} V to {range[1]} V")
         if self.Setpoint_binned is not None:
             print("     Setpoint bins               -> ", len(self.Setpoint_binned))
+            if self.Scan_dwells is not None:
+                sd = self.Scan_dwells
+                print(
+                    "     Scan pattern                -> ",
+                    f"{sd.pattern}, {sd.cycles:.2f} cycles, "
+                    f"{sd.triggers_per_dwell:.0f} triggers per step",
+                )
             if self.Setpoint_dropped:
                 print(
-                    "     Under-visited, left out [V] -> ",
+                    "     Under-exposed, left out [V] -> ",
                     self.Setpoint_dropped[:10],
                     "..." if len(self.Setpoint_dropped) > 10 else "",
                 )
@@ -362,6 +371,9 @@ class CLSDataFrame:
         if self.Setpoint_binned is not None:
             output["Setpoint_bins"] = [len(self.Setpoint_binned)]
             output["Setpoint_dropped"] = [len(self.Setpoint_dropped)]
+            if self.Scan_dwells is not None:
+                output["Scan_pattern"] = [self.Scan_dwells.pattern]
+                output["Scan_cycles"] = [self.Scan_dwells.cycles]
 
         if self.Counting_check is not None:
             check = self.Counting_check
@@ -701,10 +713,14 @@ class CLSDataFrame:
         chi2_red of Bi 8244/8245 from 3.4/4.2 to 2.5/2.0, moved Bl by 2.6 MHz, and removed the
         0.15-1 MHz jumps of the fits when the cooler offset is scanned.
 
-        Needs Compute_WL (columns F and V). Set voltages with fewer visits than min_visits times
-        the median (the sweep end points, visited half as often by an up-down scan) are left out
-        and listed in Setpoint_dropped. The x value of a set voltage without gated events is the
-        mean frequency of all its events.
+        Needs Compute_WL (columns F and V). The exposure of each set voltage comes from the
+        reconstructed scan (scan_dwells, stored in Scan_dwells): the ranges in their listed
+        order, up and down or sawtooth, followed through the trigger counter. It counts the
+        dwells without events too, and both dwells at the turns of an up-down scan, so the end
+        points have the same exposure as the other set voltages. Set voltages scanned fewer times
+        than min_visits times the median (partial cycles at the start or end of short runs) are
+        left out and listed in Setpoint_dropped. The x value of a set voltage without gated
+        events is the mean frequency of all its events.
 
         Parameters
         ----------
@@ -717,7 +733,8 @@ class CLSDataFrame:
         PMT_gate : list of int, optional
             PMT channels (TDC, 1-4) counted. All channels if None.
         min_visits : float, optional
-            Minimum number of visits relative to the median (default 0.75).
+            Minimum number of times a set voltage was scanned (dwells / dwells per cycle),
+            relative to the median (default 0.75). 0 keeps every set voltage.
 
         Returns
         -------
@@ -725,14 +742,17 @@ class CLSDataFrame:
             Also stored in Setpoint_binned, sorted by frequency, columns: DV (set voltage [V]),
             Fcount (counts), Fcount_err (sqrt(counts), 1 for 0), Fmean, Fstd (mean and
             standard deviation of the gated events' F [Hz]), Vmean, Vstd (same for V [V]),
-            visits (visits of the set voltage).
+            visits (dwells of the scan on the set voltage, with or without events).
         """
         start = time.time()
         ev = self.Run[["Bunch", "TOF", "DV", "TDC", "F", "V"]].compute()
         order = np.lexsort((ev["TOF"].to_numpy(), ev["Bunch"].to_numpy()))
-        dv_t = ev["DV"].to_numpy()[order]
-        first = np.r_[0, np.flatnonzero(np.diff(dv_t) != 0) + 1] if len(dv_t) else []
-        visits = pd.Series(dv_t[first]).value_counts()
+        self.Scan_dwells = scan_dwells(
+            ev["DV"].to_numpy()[order],
+            ev["Bunch"].to_numpy()[order],
+            self.ScanningRanges,
+            self.Step_Size,
+        )
 
         sel = np.ones(len(ev), dtype=bool)
         if TOF_gate is not None:
@@ -755,12 +775,16 @@ class CLSDataFrame:
         table["Fcount"] = table["Fcount"].fillna(0).astype(int)
         table["Fmean"] = table["Fmean"].fillna(every["F"])
         table["Vmean"] = table["Vmean"].fillna(every["V"])
-        table["visits"] = visits.reindex(table.index).fillna(0).astype(int).to_numpy()
+        key = np.round(table.index.to_numpy(float), 6).tolist()
+        sweeps = self.Scan_dwells.sweeps()
+        table["visits"] = [self.Scan_dwells.dwells.get(k, 0) for k in key]
+        times = np.array([sweeps.get(k, 0.0) for k in key])
 
         dv = table.index.to_numpy(float)
         if V_gate is not None:
-            table = table[(dv > min(V_gate)) & (dv < max(V_gate))]
-        enough = table["visits"] >= min_visits * np.median(table["visits"]) if len(table) else []
+            inside = (dv > min(V_gate)) & (dv < max(V_gate))
+            table, times = table[inside], times[inside]
+        enough = times >= min_visits * np.median(times) if len(table) else []
         self.Setpoint_dropped = [float(v) for v in table.index[~np.asarray(enough, bool)]]
         table = table[np.asarray(enough, bool)]
         if F_gate is not None:
@@ -1265,6 +1289,7 @@ class CLSDataFrame:
         self.Dead_time_pileup = {}
         self.Setpoint_binned = None
         self.Setpoint_dropped = []
+        self.Scan_dwells = None
         self.Cooler_correction = None
         self.Cooler_window_s = None
         self.Cooler_ripple = None

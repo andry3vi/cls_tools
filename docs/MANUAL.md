@@ -341,7 +341,7 @@ ranges only partly. On Bi 8244/8245, one point per set voltage lowered χ²_red 
 | `V_gate` | `[min, max]` set voltage `DV` [V] of the set voltages kept |
 | `F_gate` | `[min, max]` mean frequency [Hz] of the set voltages kept |
 | `PMT_gate` | PMT channels counted, e.g. `[3, 4]` |
-| `min_visits` | set voltages with fewer visits than this × the median are dropped (the sweep end points of up-down scans, visited half as often) and listed in `Setpoint_dropped` |
+| `min_visits` | set voltages scanned fewer times than this × the median are dropped and listed in `Setpoint_dropped` (default 0.75; 0 keeps all) |
 
 Returns and stores `Setpoint_binned`, sorted by frequency, with these columns:
 
@@ -352,14 +352,19 @@ Returns and stores `Setpoint_binned`, sorted by frequency, with these columns:
 | `Fcount_err` | √counts, 1 for 0 |
 | `Fmean`, `Fstd` | mean and standard deviation of the gated events' `F` [Hz]. A set voltage with no gated events gets the mean `F` of all its events |
 | `Vmean`, `Vstd` | the same for `V` [V] |
-| `visits` | visits of the set voltage |
+| `visits` | dwells of the scan on the set voltage, with or without events (its exposure, in steps) |
 
-The visits are counted from the events: a visit without any event is not seen. With fewer than
-about 2 events per visit (sparse online runs), visits of the quieter set voltages are missed, the
-`min_visits` cut then drops some of them as well as the end points, and it drops preferentially
-the ones that happened to count less. Check `Setpoint_dropped`: in an up-down scan it should hold
-only the two end points of each range. Otherwise pass `min_visits=0` and leave out the end points
-with `V_gate`.
+The exposure comes from the reconstructed scan ([`scan_dwells`](#clstoolsscan), stored in
+`Scan_dwells`), not from the events. The DAQ dwells twice in a row on the set voltages where an
+up-down scan turns, so the sweep end points have the same exposure as the others (Bi 8244: 480
+and 428 counts at 530 and −130 V, median 507). Dwells without events are counted too, which
+matters below about 2 events per dwell (online runs). Counting visits from the events instead
+dropped set voltages in 647 of 758 archive runs: the end points in all up-down runs, and up to
+374 of 873 set voltages in a sparse Yb+ run (7549). The cut now drops set voltages only where a
+short run ends in a partial cycle (31 of the 758 runs, all shorter than 3 cycles).
+
+When the ranges list a range twice, its set voltages get twice the exposure; `visits` shows
+it, and `Fcount / visits` gives comparable rates.
 
 ```python
 sp = data.Compute_Setpoint_Bins(TOF_gate=[67.0, 73.3], PMT_gate=[3, 4])
@@ -439,8 +444,8 @@ Example (Bi 8244):
                       afterpulse bursts; a 10 us dead time gives 1.04 (apply_dead_time)
 -------------------Scanning Ranges-------------------
      ...
-     Setpoint bins               ->  291
-     Under-visited, left out [V] ->  [-130.0, 530.0]
+     Setpoint bins               ->  293
+     Scan pattern                ->  updown, 35.00 cycles, 29 triggers per step
 ```
 
 After `apply_dead_time()` (5.2 % of the events removed) the Fano factors are 1.02–1.04.
@@ -496,7 +501,7 @@ f_rest = data.dopplershift(2 * data.Laser_set, 30000.0, m, collinear=False, rest
 | `Trigger_period_us` | `Load_Run` | trigger period estimated from the timestamps |
 | `Counting_check_loaded`, `Counting_check` | `Load_Run`, `Check_Counting` | counting check as loaded / after the last filter |
 | `Dead_time_us`, `Dead_time_removed`, `Dead_time_pileup` | `apply_dead_time` | dead time and its effect per PMT |
-| `Setpoint_binned`, `Setpoint_dropped` | `Compute_Setpoint_Bins` | spectrum per set voltage, dropped set voltages |
+| `Setpoint_binned`, `Setpoint_dropped`, `Scan_dwells` | `Compute_Setpoint_Bins` | spectrum per set voltage, dropped set voltages, reconstructed scan |
 | `Binned`, `ToF_binned`, `Raw_binned` | `Compute_Bins`, `Compute_ToF`, `Compute_Raw_Bins` | histograms |
 
 ## clstools.calibration
@@ -632,6 +637,45 @@ ok = ~faulty_readings(v, 5.0)
 rip = cls.cooler_ripple(t[ok], v[ok])
 print(rip.alias_period_s, rip.fast_rms_v, rip.window_s())
 v_smooth = smooth_readings(t[ok], v[ok], rip.window_s())  # what 'smooth' uses
+```
+
+## clstools.scan
+
+How often the scan stood on each set voltage. The DAQ steps through the `ScanningRanges` in
+their listed order, each from its first to its second value, and then either runs the same
+sequence backwards, dwelling twice in a row on the turning points (`'updown'`, most runs since
+November 2024), or starts again (`'sawtooth'`, most runs before, and some later ones). Every
+dwell takes `BunchesPerChannel` triggers plus a settling time. Checked on 758 archive runs: on
+the runs with one trigger per step this matches every event's set voltage to its trigger
+number exactly.
+
+#### `scan_dwells(dv, bunch, ranges=None, step=None, pattern='auto')` → `ScanDwells`
+
+Reconstructs the scan from the events (`dv`, `bunch` in time order) and counts the dwells of
+every set voltage between the first and the last event. Each visit (a run of events with one
+`DV`) is placed in the cycle at the position closest to what the triggers since the previous
+visit predict (median triggers per step, as the trigger counter also counts settling
+triggers). `pattern='auto'` takes the pattern whose positions follow the triggers best. Without
+`ranges`/`step`, or when events lie outside them, the sequence is the observed set voltages in
+ascending order. About 0.1–0.3 s for a run.
+
+`ScanDwells` holds `dwells` and `per_cycle` (`{DV: n}`), `pattern`, `sequence_from`
+(`'ranges'` or `'events'`), `triggers_per_dwell`, `cycles`, and `residual` (mean distance in
+steps between the placed and the predicted positions: 0 for one trigger per step, 0.1–0.5
+usually, larger only for runs with < 0.2 events per step). `sweeps()` gives dwells / dwells
+per cycle, which is equal for all set voltages of a run up to the partial cycles at its ends.
+
+#### `scan_sequence(ranges, step)`
+
+The set voltages of one sweep: the ranges in listed order, each from its first to its second
+value.
+
+```python
+ev = data.Run[["DV", "Bunch", "TOF"]].compute().sort_values(["Bunch", "TOF"])
+sd = cls.scan_dwells(ev["DV"], ev["Bunch"], data.ScanningRanges, data.Step_Size)
+print(sd.pattern, sd.cycles, sd.triggers_per_dwell, sd.residual)
+print(sd.dwells[-130.0], sd.sweeps()[-130.0])
+print(cls.scan_sequence([[5.0, 7.0], [-2.0, -4.0]], 1.0))  # [ 5.  6.  7. -2. -3. -4.]
 ```
 
 ## clstools.counting

@@ -106,8 +106,10 @@ broadening that no correction can remove.
 ## Binning
 
 `Compute_Setpoint_Bins` gives one point per scan set voltage: the counts of its gated events at
-their mean frequency. Under-visited set voltages, such as the end points of up-down sweeps, are
-left out. `Compute_Bins` instead makes frequency bins of one step, which straddle set voltages
+their mean frequency. The exposure of each set voltage comes from the reconstructed scan
+(`scan_dwells`): the end points of up-down sweeps are dwelt on twice at each turn and are kept,
+and dwells without events (sparse online runs) are counted; only set voltages left short by a
+partial cycle at the end of a short run are dropped. `Compute_Bins` instead makes frequency bins of one step, which straddle set voltages
 once the scan voltages are unevenly spaced and only partly cover the ends of the ranges. In the
 Bi runs, binning by set voltage lowered χ²_red from 3.4/4.2 to 2.5/2.0 and moved Bl by 2.6 MHz.
 

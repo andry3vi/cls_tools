@@ -13,3 +13,6 @@ from .counting import PMTCounting as PMTCounting
 from .counting import check_counting as check_counting
 from .counting import pileup_fraction as pileup_fraction
 from .DataFrame import CLSDataFrame as CLSDataFrame
+from .scan import ScanDwells as ScanDwells
+from .scan import scan_dwells as scan_dwells
+from .scan import scan_sequence as scan_sequence

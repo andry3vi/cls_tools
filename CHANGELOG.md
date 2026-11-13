@@ -58,8 +58,17 @@ per-event V within 5 µV from the table's rounding. On the seven systematics run
   - `apply_filter` now also reruns the counting check.
 - `CLSDataFrame.Compute_Setpoint_Bins`: one point per scan set voltage, counts at the mean
   frequency of the gated events.
-  - Under-visited set voltages (sweep end points) are dropped and listed in `Setpoint_dropped`.
-  - It is identical to the systematics' binning on 8244 and 7509.
+  - The exposure of each set voltage (`visits`) comes from the reconstructed scan,
+    `clstools.scan.scan_dwells`: the ranges in listed order, up-down or sawtooth, followed
+    through the trigger counter. It matches the exact trigger mapping of one-trigger-per-step
+    runs and counts dwells without events. Set voltages scanned fewer times than 0.75 × the
+    median (partial cycles of short runs) are dropped and listed in `Setpoint_dropped`.
+  - The sweep end points are kept. The DAQ dwells twice on them at every turn, so they have
+    the same exposure (Bi 8244: 480/428 counts at the ends, median 507). The systematics'
+    binning dropped them as visited half as often; otherwise the two are identical on 8244 and
+    7509. Counting visits from the events dropped set voltages in 647 of 758 archive runs, up
+    to 374 of 873 in the sparse Yb+ run 7549; the reconstructed scan drops them in 31 short
+    runs.
   - On Bi 8244/8245 it lowers χ²_red from 3.4/4.2 to 2.5/2.0 and moves Bl by 2.6 MHz.
 - Run scale in `Use_Scan_Calibration(gain=...)` and `ScanCalibration.fit_run`. The default
   `'auto'` follows the CLS systematics rule:
