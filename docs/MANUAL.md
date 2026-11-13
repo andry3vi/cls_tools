@@ -1,7 +1,9 @@
 # clstools manual
 
 Reference for every public class, method and function of `clstools`. Each entry gives what it
-does, when to call it, its parameters, what it returns and stores, and the warnings it raises.
+does, when to call it, its parameters, what it returns and stores, the warnings it raises, and
+an example of its use. The examples continue the [typical session](#typical-session): `data` is
+a `CLSDataFrame` with a run loaded and `cls` is `clstools`.
 The physics behind the defaults comes from the Bi offline experiment (October 2026) and the CLS
 systematics study (November 2026); the numbers quoted are from those runs.
 
@@ -46,6 +48,11 @@ Creates an empty frame.
 | `VCoolDiv` | divider ratio of the cooler-voltage monitor (`Vrfq` × VCoolDiv = cooler voltage in V) |
 | `VCoolOffset` | added to the cooler voltage [V]; the effective acceleration voltage can differ from the reading by tens of volts (Yb+ I340: about −30 V, Bi offline about +13 V) |
 
+```python
+data = cls.CLSDataFrame()  # standard dividers
+data = cls.CLSDataFrame(VCoolOffset=13.0)  # Bi offline: beam energy 13 V above the reading
+```
+
 #### `Load_Run(filename, cal_order=1, blocksize=25e6, filter_calibration=True, ignore_intercept=False, counting_check=True)`
 
 Reads an ASDF run file, fits the in-run scan-voltage calibration, and checks the file.
@@ -87,10 +94,23 @@ data.Load_Run(path, counting_check=False)  # skip the counting check
 Refits the polynomial calibration on the current `Cal_df` at another order. The outlier filter
 and `ignore_intercept` are not applied again. Rerun `Compute_Voltages` afterwards.
 
+```python
+data.Update_Cal(cal_order=2)  # quadratic through the points kept by Load_Run
+print(data.Cal, data.Cal_err)  # ascending: Cal[0] is the intercept; Cal_err are variances
+data.Compute_Voltages()
+data.Compute_WL(Mass=m, ref=f_ref)
+```
+
 #### `Update_V_divisions(VAccDiv=1000, VCoolDiv=10000, VcoolOffset=0)`
 
 Sets the divider ratios and the cooler offset. Only the attributes change: rerun
 `Compute_Voltages` and `Compute_WL` for the change to reach `V` and `F`.
+
+```python
+data.Update_V_divisions(VAccDiv=1000, VCoolDiv=10000, VcoolOffset=-30.0)
+data.Compute_Voltages()
+data.Compute_WL(Mass=m, ref=f_ref)
+```
 
 ### Scan-voltage calibration
 
@@ -147,6 +167,12 @@ print(data.Scan_offset_v, data.Scan_scale, data.Scan_scale_mode)
 Installs any function `DV [V] → applied scan voltage [V]` (numpy in, numpy out) in place of
 the polynomial; `None` restores the polynomial. `Use_Scan_Calibration` uses this hook.
 
+```python
+data.Set_Scan_Voltage_Map(lambda dv: 1000.0 * (1.0002 * dv - 0.0004))  # own calibration [V]
+data.Compute_Voltages()
+data.Set_Scan_Voltage_Map(None)  # back to the polynomial
+```
+
 ### Voltages and frequencies
 
 #### `Compute_Voltages(cooler_correction='smooth', cooler_window_s='auto', cooler_max_dev_v=5.0)`
@@ -200,14 +226,29 @@ voltage step at the initial cooler voltage).
 | `ref` | reference frequency [Hz] subtracted from `F` |
 | `harmonic` | multiplier of `LaserSetpoint` |
 
+```python
+data.Compute_WL(Mass=208.980398599 - 5.48579909e-4, ref=0.0, harmonic=2)  # 209Bi+
+print(data.Sorted[["V", "WN", "F"]].head(), data.Frequency_stepsize)
+```
+
 #### `Shift_Ref(ref=0)`
 
 Recomputes `F` from `WN` with a new reference [Hz], without redoing the Doppler shift.
+
+```python
+data.Shift_Ref(ref=1.2345e15)  # F is now relative to 1.2345e15 Hz
+data.Compute_Setpoint_Bins(TOF_gate=[67.0, 73.3])
+```
 
 #### `Frequency_ranges(Mass, ref=0, harmonic=2)`
 
 Returns the scanned ranges converted to frequency, `[[f_lo, f_hi], …]` in MHz, using the
 installed scan map if any.
+
+```python
+for f_lo, f_hi in data.Frequency_ranges(Mass=m, ref=f_ref):
+    print(f"{f_lo:.1f} to {f_hi:.1f} MHz")
+```
 
 ### Event filters
 
@@ -215,6 +256,12 @@ installed scan map if any.
 
 Drops all events of a timestamp (10 ms) holding more than `filter_window` events: noise bursts
 on all channels. 0 does nothing. Reruns the counting check. Run 5028 went from Fano 475 to 1.06.
+
+```python
+data.Load_Run(path)
+data.apply_filter(filter_window=5)  # drop timestamps with more than 5 events
+data.Info()  # the PMT table now shows the filtered counts
+```
 
 #### `apply_dead_time(dead_time_us=10.0)`
 
@@ -270,6 +317,13 @@ A `CountingWarning` is raised when |Fano − 1| > 0.1 and more than 5σ on a PMT
 and how many real photons that would cost, counting losses, or correlated fluctuations
 (`apply_filter`).
 
+```python
+check = data.Check_Counting()
+for ch, pmt in check.pmts.items():
+    print(ch, pmt.fano, pmt.fano_dead, pmt.pileup_dead)
+print(check.kinds)  # e.g. {'super_poisson'}
+```
+
 ### Binning
 
 #### `Compute_Setpoint_Bins(TOF_gate=None, V_gate=None, F_gate=None, PMT_gate=None, min_visits=0.75)`
@@ -300,6 +354,13 @@ Returns and stores `Setpoint_binned`, sorted by frequency, with these columns:
 | `Vmean`, `Vstd` | the same for `V` [V] |
 | `visits` | visits of the set voltage |
 
+The visits are counted from the events: a visit without any event is not seen. With fewer than
+about 2 events per visit (sparse online runs), visits of the quieter set voltages are missed, the
+`min_visits` cut then drops some of them as well as the end points, and it drops preferentially
+the ones that happened to count less. Check `Setpoint_dropped`: in an up-down scan it should hold
+only the two end points of each range. Otherwise pass `min_visits=0` and leave out the end points
+with `V_gate`.
+
 ```python
 sp = data.Compute_Setpoint_Bins(TOF_gate=[67.0, 73.3], PMT_gate=[3, 4])
 x, y, dy = sp["Fmean"] / 1e6, sp["Fcount"], sp["Fcount_err"]
@@ -312,20 +373,39 @@ stored in `Binned` with columns `bins`, `Fcount`, `Fmean`, `Fstd`, `Vmean`, `Vst
 `bins_center`, `bins_width`. `V_gate` applies to `DV`. Kept for compatibility; prefer
 `Compute_Setpoint_Bins`.
 
+```python
+data.Compute_Bins(TOF_gate=[67.0, 73.3], PMT_gate=[3, 4])  # one frequency step per bin
+data.Compute_Bins(TOF_gate=[67.0, 73.3], bins=200)  # 200 bins over the span
+b = data.Binned
+x, y = b["Fmean"] / 1e6, b["Fcount"]
+```
+
 #### `Compute_ToF(V_gate=None, PMT_gate=None)`
 
 Counts per ToF value of the gated events, in `ToF_binned` (index `TOF`, column `counts`). Use
 it to choose the ToF gate.
 
+```python
+data.Compute_ToF(PMT_gate=[3, 4])
+data.ToF_binned["counts"].plot()  # pick TOF_gate around the bunch
+```
+
 #### `Compute_Raw_Bins(TOF_gate=None, V_gate=None, PMT_gate=None)`
 
 Counts per set voltage `DV`, in `Raw_binned`. It needs no voltage or frequency computation.
+
+```python
+data.Load_Run(path)
+data.Compute_Raw_Bins(TOF_gate=[67.0, 73.3], PMT_gate=[3, 4])  # a quick look, right after loading
+print(data.Raw_binned)
+```
 
 ### Reporting
 
 #### `Info()`
 
-Prints the run, the calibration and its checks, the scan table with the run offset and scale,
+Call it after `Compute_WL` (before that it stops at the frequency step size). Prints the run,
+the calibration and its checks, the scan table with the run offset and scale,
 the cooler (correction, window, faulty readings, alias period, ripple), the PMT counting table
 and the dead time, the scanned ranges and setpoint bins, and the timings.
 Example (Bi 8244):
@@ -365,6 +445,10 @@ Example (Bi 8244):
 
 After `apply_dead_time()` (5.2 % of the events removed) the Fano factors are 1.02–1.04.
 
+```python
+data.Info()  # after Compute_WL; optional steps not run are left out
+```
+
 #### `Info_to_csv(filename)`
 
 Writes the same information as one CSV row: metadata, calibration coefficients, scan table
@@ -372,6 +456,14 @@ Writes the same information as one CSV row: metadata, calibration coefficients, 
 (`Cooler_window_s`, `Cooler_alias_period_s`, `Cooler_ripple_rms_v`, faulty readings), setpoint
 bins, and counting (`Fano_pmt<c>`, `Burst_fraction_pmt<c>`, `Fano_dead_pmt<c>`,
 `Pileup_dead_pmt<c>`, `Dead_time_us`).
+
+```python
+for path in run_files:
+    data.Load_Run(path)
+    data.Use_Scan_Calibration()
+    data.Compute_Voltages()
+    data.Info_to_csv("runs.csv")  # one row per run
+```
 
 ### Doppler helpers
 
@@ -385,6 +477,11 @@ The pipeline uses `collinear=False, rest_to_lab=False`. It resolves F only in ~3
 #### `dopplershift(frequency, voltage, mass, collinear=True, rest_to_lab=True)`
 
 `frequency × dopplerfactor(...)`.
+
+```python
+# laser frequency seen by 209Bi+ at 30 kV, anticollinear: as in Compute_WL
+f_rest = data.dopplershift(2 * data.Laser_set, 30000.0, m, collinear=False, rest_to_lab=False)
+```
 
 ### Attributes
 
@@ -416,8 +513,20 @@ A packaged table by id, or a table file by path (`.json`). Raises `ValueError` i
 
 #### `select_table(run_date, run_number=None)`
 
-The packaged table for a run: the latest measured on or before `run_date`; otherwise the
-earliest that describes the run; otherwise the oldest.
+The packaged table for a run (`run_date` a `datetime.date`): the latest measured on or before
+`run_date`; otherwise the earliest that describes the run; otherwise the oldest.
+
+```python
+import datetime
+
+from clstools.calibration import select_table
+
+print(cls.available_tables())
+table = cls.load_table("scan_hv_2026-10-24")
+run_date = datetime.date.fromtimestamp(data.TSstart)
+table = select_table(run_date, int(data.run_number))  # what table='auto' picks
+data.Use_Scan_Calibration(table=table)
+```
 
 #### `ScanCalibration`
 
@@ -429,7 +538,7 @@ A bench table (file format v1 in the module docstring). Fields: `id`, `measured`
 | method | does |
 |---|---|
 | `ScanCalibration.load(path)` / `from_dict(d)` | read and validate a table |
-| `describes(run_date, run_number=None)` | whether the table applies to the run (from `valid_from`; on that day by run number) |
+| `describes(run_date, run_number=None)` | whether the table applies to a run of that `datetime.date` (from `valid_from`; on that day by run number) |
 | `covers(dv)` / `on_grid(dv)` | set voltages inside the table / on its grid |
 | `shape(dv, model='lut')` | offset-free applied voltage [V] |
 | `applied(dv, offset_v, model='lut', scale=1.0)` | applied voltage [V] |
@@ -439,10 +548,25 @@ A bench table (file format v1 in the module docstring). Fields: `id`, `measured`
 
 `readback_v` is at the HV side: `CalReadback × VAccDiv`.
 
+```python
+table = cls.load_table("scan_hv_2026-10-24")
+print(table.describes(datetime.date(2025, 3, 10), 6100), table.covers(data.Cal_raw["Set"]).all())
+fit = table.fit_run(
+    cal_set, readback_v=cal_readback * 1000.0, gain="auto", campaign=data.Experiment
+)
+applied = table.applied(dv, fit.offset_v, scale=fit.scale)  # applied scan voltage [V]
+```
+
 #### `CampaignGain`
 
 `gain`, `gain_sigma` (1.4826 × MAD), `n_wide` (calibrations ≥ 400 V it comes from),
 `unstable`.
+
+```python
+g = cls.load_table("scan_hv_2026-10-24").campaign_gains.get(data.Experiment)
+if g is not None:
+    print(f"campaign scale {g.gain:.6f} +- {g.gain_sigma:.6f} from {g.n_wide} calibrations")
+```
 
 ### Readback
 
@@ -452,6 +576,11 @@ Checks and fits a calibration readback. It tries lags of 1–3 steps and takes o
 lowers the residual rms below 0.7×. It rejects unsettled readings (beyond max(0.5 V, 5 robust
 σ)) and flags noise, gain and readback-scale problems. With `reference` (a table shape) it fits
 `readback = offset + table`; otherwise a polynomial of `order`.
+
+```python
+fit = cls.analyse_readback(cal_set, cal_readback * 1000.0)  # line, lag search, rejections
+print(fit.lag_steps, fit.residual_rms_v, fit.rejected_set_v, fit.kinds)
+```
 
 #### `ReadbackFit`
 
@@ -466,6 +595,12 @@ lowers the residual rms below 0.7×. It rejects unsettled readings (beyond max(0
 | `usable` | False for a dead or corrupt readback (no offset from it) |
 | `span_v` | span of the set voltages used [V] |
 | `rejected_set_v` | set voltages of the rejected readings |
+
+```python
+fit = data.Readback_check  # from Load_Run
+if not fit.usable:
+    print("dead or corrupt readback:", [i.message for i in fit.issues])
+```
 
 ### Cooler
 
@@ -488,7 +623,34 @@ strongest line between 0.05 and 4.9 Hz. `CoolerRipple.window_s()` gives the `'au
 
 Centred moving average over `window_s` seconds.
 
+```python
+from clstools.calibration import cooler_readings, faulty_readings, smooth_readings
+
+ev = data.Run[["TS", "Vrfq"]].compute().sort_values("TS")
+t, v = cooler_readings(ev["TS"].to_numpy(), ev["Vrfq"].to_numpy() * data.VCoolDiv)
+ok = ~faulty_readings(v, 5.0)
+rip = cls.cooler_ripple(t[ok], v[ok])
+print(rip.alias_period_s, rip.fast_rms_v, rip.window_s())
+v_smooth = smooth_readings(t[ok], v[ok], rip.window_s())  # what 'smooth' uses
+```
+
 ## clstools.counting
+
+The functions behind `Check_Counting` and `apply_dead_time`, on plain numpy arrays of the events
+(for example from `data.Run[["DV", "Bunch", "TDC", "TOF", "TS"]].compute()`). `check_counting`
+and `pileup_fraction` are exported by `clstools`; the others are imported from
+`clstools.counting`.
+
+```python
+from clstools.counting import dead_time_keep, trigger_period_us
+
+ev = data.Run[["TS", "DV", "Bunch", "TDC", "TOF"]].compute()
+a = {c: ev[c].to_numpy() for c in ev}
+period = trigger_period_us(a["TS"], a["Bunch"], a["TOF"])
+check = cls.check_counting(a["DV"], a["Bunch"], a["TDC"], a["TOF"], period)
+loss = cls.pileup_fraction(a["DV"], a["Bunch"], a["TDC"], a["TOF"], dead_time_us=1.0)
+keep = dead_time_keep(a["Bunch"], a["TDC"], a["TOF"], period, {4: 10.0})
+```
 
 #### `check_counting(dv, bunch, tdc, tof, period_us, dead_time_us=10.0)`
 
