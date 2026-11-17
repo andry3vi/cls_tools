@@ -48,7 +48,7 @@ Issues = "https://github.com/andry3vi/cls_tools/issues"
 include = ["clstools*"]
 
 [tool.setuptools.package-data]
-clstools = ["*.py"]
+clstools = ["*.py", "data/*.json"]
 
 # ===========================================================================
 # Tooling. Enforced by .github/workflows/ci.yml.

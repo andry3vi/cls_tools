@@ -29,8 +29,11 @@ def main():
     PMT_GATE = [3, 4]
     data = cls.CLSDataFrame()  # initilize a cls dataframe class to sort the run
     data.Load_Run(os.path.join(data_directory, f"run_{run_number}.asdf"))  # load the run
-    # compute absolute beam energies from the cooler voltage and scanning voltage using
-    # the calibration of the voltage dividers
+    # scan voltage from the packaged bench table (DAC nonlinearity) with this run's offset and
+    # scale fitted to its in-run calibration; without this call the per-run line is used
+    data.Use_Scan_Calibration()
+    # compute absolute beam energies from the cooler voltage and scanning voltage; the cooler
+    # readings are averaged over several alias periods of the mains ripple (default 'smooth')
     data.Compute_Voltages()
     # compute the particle restframe Frequency from their energy and the laser setpoint;
     # the reference frequency is subtracted
@@ -48,12 +51,25 @@ def main():
     axs_TOF.set_xlabel(r"Time [$\mu$s]")
     axs_TOF.set_title("TOF")
 
-    # computing and plotting the binned frequency spectrum
-    data.Compute_Bins(TOF_gate=TOF_GATE)
+    # the spectrum: one point per scan set voltage at the mean frequency of its events
+    data.Compute_Setpoint_Bins(TOF_gate=TOF_GATE, PMT_gate=PMT_GATE)
+    sp = data.Setpoint_binned
     _fig, axs = plt.subplots(figsize=(16, 9), dpi=100)
-    axs.plot(data.Binned["Fmean"] / 1e6, data.Binned["Fcount"], drawstyle="steps")
-    axs.set_ylabel("Counts [n.u.]")
+    axs.errorbar(
+        sp["Fmean"] / 1e6, sp["Fcount"], yerr=sp["Fcount_err"], fmt=".", label="set voltages"
+    )
+    # the older frequency binning, for comparison
+    data.Compute_Bins(TOF_gate=TOF_GATE, PMT_gate=PMT_GATE)
+    axs.plot(
+        data.Binned["Fmean"] / 1e6,
+        data.Binned["Fcount"],
+        drawstyle="steps",
+        alpha=0.5,
+        label="frequency bins (Compute_Bins)",
+    )
+    axs.set_ylabel("Counts")
     axs.set_xlabel("Frequency [MHz]")
+    axs.legend()
 
     data.Info()
     plt.show()

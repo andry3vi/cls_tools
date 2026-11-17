@@ -1,7 +1,8 @@
 ## Binary and Simulation directory
 bin/
 build/
-data/
+/data/
+/tmp/
 
 ## user defined temporary files
 *_tmp*
